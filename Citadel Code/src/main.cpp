@@ -47,6 +47,8 @@ DRV8825 stepper2(200, PIN_STEP_DIR, PIN_STEP_2, 0, 0, 0, 0);
 DRV8825 stepper3(200, PIN_STEP_DIR, PIN_STEP_3, 0, 0, 0, 0);
 DRV8825 stepper4(200, PIN_STEP_DIR, PIN_STEP_4, 0, 0, 0, 0);
 
+DRV8825* steppers[4] = {&stepper1, &stepper2, &stepper3, &stepper4};
+
 
 //----------//
 //  Timing  //
@@ -58,7 +60,9 @@ long fansTimer, fanTimer_1, fanTimer_2, fanTimer_3;
 bool fansOn = 0, fanOn_1 = 0, fanOn_2 = 0, fanOn_3 = 0;
 
 long prevFanTime = 0, prevFanTime_1 = 0, prevFanTime_2 = 0, prevFanTime_3 = 0;
-bool pump1On = 0, pump2On = 0, pump3On = 0, pump4On = 0;
+
+bool pumpStates[4] = {false, false, false, false};
+float pumpSteps[4] = {0, 0, 0, 0};
 
 long lastWiggle = 0;  // For PWM servos
 bool servoStates[3] = {false, false, false};
@@ -67,11 +71,25 @@ int servoPositions[3] = {0, 0, 0};
 long lastVoltRead = 0;
 
 
+void stepperController(void* pvParameters) {
+    while (true) {
+        for (int i = 0; i < 4; i++) {
+            if (pumpStates[i]) {
+                digitalWrite(PIN_STEP_ENABLE, LOW);
+                steppers[i]->rotate(pumpSteps[i]);
+                digitalWrite(PIN_STEP_ENABLE, HIGH);
+                pumpStates[i] = false;
+                pumpSteps[i] = 0;
+            }
+        }
+        delay(5);
+    }
+}
+
+
 //--------------//
 //  Prototypes  //
 //--------------//
-
-void pumpActivate(int pumpNum, float mL);
 
 
 //------------------------------------------------------------------------------------------------//
@@ -148,6 +166,16 @@ void setup()
     stepper2.begin();
     stepper3.begin();
     stepper4.begin();
+
+    xTaskCreatePinnedToCore (
+        stepperController,     // Function to implement the task
+        "stepperController",   // Name of the task
+        1000,      // Stack size in bytes
+        NULL,      // Task input parameter
+        0,         // Priority of the task
+        NULL,      // Task handle.
+        0          // Core where the task should run
+    );
 }
 
 
@@ -201,6 +229,7 @@ void loop()
     }
 
     if (millis() - lastWiggle > 1000) {
+        lastWiggle = millis();
         if (servoStates[0]) {
             servoPositions[0] = (servoPositions[0] == 0 ? 180 : 0);
             servo1.write(servoPositions[0]);
@@ -274,7 +303,6 @@ void loop()
 
         else if (commandID == CMD_LSS_TURNBY_DEG)
         {
-
             if (canData.size() == 1)
             {
                 if (canData[0] <= 100 && canData[0] >= -100)
@@ -305,8 +333,11 @@ void loop()
 
         else if (commandID == CMD_STEPPER_CTRL)
         {
-            if (canData.size() == 2)
-                pumpActivate(canData[0], canData[1]);
+            if (canData.size() == 2 && canData[0] > 0 && canData[0] < 5) {
+                const float stepsF = (canData[1] / 1.14009) * 3600.0;
+                pumpStates[static_cast<int>(canData[0]) - 1] = true;
+                pumpSteps[static_cast<int>(canData[0]) - 1] = stepsF;
+            }
         }
 
         else if (commandID == CMD_LSS_RESET) {
@@ -498,11 +529,6 @@ void loop()
             servo3.detach();
         }
 
-        else if (args[0] == "pump")
-        {
-            pumpActivate(args[1].toInt(), args[2].toFloat());
-        }
-
         else if (args[0] == "lynx")
         {
           if (command != input)
@@ -568,36 +594,3 @@ void loop()
 //    //            //          //      //////////    //
 //                                                    //
 //----------------------------------------------------//.
-
-void pumpActivate(int pumpNum, float mL)
-{
-    float stepsF = (mL/1.14009)*3600;
-    int stepsI = stepsF;
-    switch (pumpNum)
-    {
-    case 1:
-        pump1On = 1;
-        digitalWrite(PIN_STEP_ENABLE, LOW);
-        stepper1.rotate(stepsI);
-        digitalWrite(PIN_STEP_ENABLE, HIGH);
-        break;
-    case 2:
-        pump2On = 1;
-        digitalWrite(PIN_STEP_ENABLE, LOW);
-        stepper2.rotate(stepsI);
-        digitalWrite(PIN_STEP_ENABLE, HIGH);
-        break;
-    case 3:
-        pump3On = 1;
-        digitalWrite(PIN_STEP_ENABLE, LOW);
-        stepper3.rotate(stepsI);
-        digitalWrite(PIN_STEP_ENABLE, HIGH);
-        break;
-    case 4:
-        pump4On = 1;
-        digitalWrite(PIN_STEP_ENABLE, LOW);
-        stepper4.rotate(stepsI);
-        digitalWrite(PIN_STEP_ENABLE, HIGH);
-        break;
-    }
-}
