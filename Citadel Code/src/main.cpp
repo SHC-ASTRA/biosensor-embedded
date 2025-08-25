@@ -71,7 +71,7 @@ int servoPositions[3] = {0, 0, 0};
 long lastVoltRead = 0;
 
 
-void loop2(void* pvParameters) {
+void stepperController(void* pvParameters) {
     while (true) {
         for (int i = 0; i < 4; i++) {
             if (pumpStates[i]) {
@@ -168,8 +168,8 @@ void setup()
     stepper4.begin();
 
     xTaskCreatePinnedToCore (
-        loop2,     // Function to implement the task
-        "loop2",   // Name of the task
+        stepperController,     // Function to implement the task
+        "stepperController",   // Name of the task
         1000,      // Stack size in bytes
         NULL,      // Task input parameter
         0,         // Priority of the task
