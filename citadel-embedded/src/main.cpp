@@ -10,11 +10,14 @@
 #include <ESP32Servo.h>
 #include "AstraMisc.h"
 #include "AstraVicCAN.h"
+#include "AstraMotors.h"
 
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
 #define CAN_TX 34
 #define CAN_RX 35
+
+#define FAN_MOTOR_ID 4 // TODO: Needs to be confirmed
 
 bool ledState = false;
 
@@ -25,6 +28,18 @@ long lastWiggle = 0; // For PWM servos
 bool servoStates[9] = {false, false, false, false, false, false, false, false, false};
 // Valve 1 is servo1, Valve2 is servo2, and so fourth - wanted to have a standard convention for messages
 int servoPositions[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+uint32_t lastBlink = 0;
+unsigned long lastAccel = 0;
+unsigned long lastHB = 0;
+int heartBeatNum = 1;
+unsigned long lastCtrlCmd = 0;
+unsigned long lastMotorStatus = 0;
+
+AstraMotors FanMotor(FAN_MOTOR_ID, sparkMax_ctrlType::kDutyCycle, true);
+
+// Declarations
+void Stop();
 
 void setup()
 {
@@ -47,9 +62,10 @@ void setup()
   chemical2.attach(26);
   chemical3.attach(27);
 
-
-
-  ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX);
+  if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
+    Serial.println("CAN bus started!");
+  else
+    Serial.println("CAN bus failed!");
 }
 
 void loop()
@@ -120,7 +136,7 @@ void loop()
       //--------//
       //  Misc  //
       //--------//
-      /**/ 
+      /**/
       if (command == "ping")
       {
         Serial.println("pong");
@@ -169,13 +185,34 @@ void loop()
           valve3.write(args[2].toInt());
           break;
         case 4:
-          distributor1.write(args[2].toInt());
+          if (args[1].toInt() <= 60)
+          {
+            distributor1.write(args[2].toInt());
+          }
+          else
+          {
+            distributor1.write(60);
+          }
           break;
         case 5:
-          distributor2.write(args[2].toInt());
+          if (args[1].toInt() <= 60)
+          {
+            distributor2.write(args[2].toInt());
+          }
+          else
+          {
+            distributor2.write(60);
+          }
           break;
         case 6:
-          distributor3.write(args[2].toInt());
+          if (args[1].toInt() <= 60)
+          {
+            distributor3.write(args[2].toInt());
+          }
+          else
+          {
+            distributor3.write(60);
+          }
           break;
         case 7:
           chemical1.write(args[2].toInt());
@@ -189,24 +226,27 @@ void loop()
         default:
           break;
         }
-        
       }
-      else if(args[0] == "val"){
+      else if (args[0] == "val")
+      {
         valve1.write(args[1].toInt());
         valve2.write(args[1].toInt());
         valve3.write(args[1].toInt());
       }
-      else if(args[0] == "dist"){
+      else if (args[0] == "dist")
+      {
         distributor1.write(args[1].toInt());
         distributor2.write(args[1].toInt());
         distributor3.write(args[1].toInt());
       }
-      else if(args[0] == "chem"){
+      else if (args[0] == "chem")
+      {
         chemical1.write(args[1].toInt());
         chemical2.write(args[1].toInt());
         chemical3.write(args[1].toInt());
       }
-      else if(args[0] == "all"){
+      else if (args[0] == "all")
+      {
         valve1.write(args[1].toInt());
         valve2.write(args[1].toInt());
         valve3.write(args[1].toInt());
@@ -232,7 +272,6 @@ void loop()
       //   chemical2.detach();
       //   chemical3.detach();
       // }
-
     }
 
     if (vicCAN.readCan())
@@ -262,12 +301,61 @@ void loop()
         Serial.println("Received ping over CAN");
       }
       else if (commandID == CMD_PWMSERVO_SET_DEG)
+      {
+        if (canData.size() == 2 && canData[0] > 0 && canData[0] < 4)
         {
-            if (canData.size() == 2 && canData[0] > 0 && canData[0] < 4) {
-                unsigned servoId = static_cast<unsigned>(canData[0]);
-                servoStates[servoId - 1] = static_cast<bool>(canData[1]);
-            }
+          unsigned servoId = static_cast<unsigned>(canData[0]);
+          servoStates[servoId - 1] = static_cast<bool>(canData[1]);
         }
+      }
+      // Accelerate motors; update the speed for all motors
+      if (millis() - lastAccel >= 50)
+      {
+        lastAccel = millis();
+        for (int i = 0; i < 4; i++)
+        {
+          FanMotor.accelerate();
+        }
+      }
+
+      // Heartbeat for REV motors
+      if (millis() - lastHB >= 3)
+      {
+        lastHB = millis();
+        CAN_sendHeartbeat(heartBeatNum);
+        heartBeatNum++;
+        if (heartBeatNum > 4)
+        {
+          heartBeatNum = 1;
+        }
+      }
+
+      // Safety timeout
+      if (millis() - lastCtrlCmd > 2000) // if no control commands are received for 2 seconds
+      {
+        lastCtrlCmd = millis();
+
+        // Only ignore safety timeout if all motors are rotating
+        bool allRotating = true;
+        for (int i = 0; i < 4; i++)
+        {
+          if (!FanMotor.isRotToPos())
+          {
+            allRotating = false;
+            break;
+          }
+        }
+        if (!allRotating)
+        {
+          Serial.println("No Control, Safety Timeout");
+          Stop();
+        }
+      }
     }
   }
+}
+
+void Stop()
+{
+  FanMotor.stop();
 }
