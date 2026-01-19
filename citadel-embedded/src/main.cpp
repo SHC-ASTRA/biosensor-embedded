@@ -36,7 +36,7 @@ long lastWiggle = 0; // For PWM servos
 bool servoStates[9] = {false, false, false, false, false, false, false, false, false};
 
 // Valve 1 is servo1, Valve2 is servo2, and so fourth - wanted to have a standard convention for messages
-int servoPositions[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+int servoPositions[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};  
 
 uint32_t lastBlink = 0;
 unsigned long lastAccel = 0;
