@@ -17,17 +17,21 @@
 #define CAN_TX 34
 #define CAN_RX 35
 
-#define FAN_MOTOR_ID 4 // TODO: Needs to be confirmed
+#define FAN_MOTOR_ID 1 // TODO: Needs to be confirmed
 
 bool ledState = false;
 
 // Defined servos (3 for valves, 3 for distributors, 3 for chemicals)
 Servo valve1, valve2, valve3, distributor1, distributor2, distributor3, chemical1, chemical2, chemical3;
+Servo *servoReference[9] = {&valve1, &valve2, &valve3, &distributor1, &distributor2, &distributor3, &chemical1, &chemical2, &chemical3};
+
+int currentServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+int targetServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+unsigned long lastServoMoveTime = 0;
+int servoSpeed = 18; // Uses servo steps to determine speed
 
 long lastWiggle = 0; // For PWM servos
 bool servoStates[9] = {false, false, false, false, false, false, false, false, false};
-// Valve 1 is servo1, Valve2 is servo2, and so fourth - wanted to have a standard convention for messages
-int servoPositions[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 uint32_t lastBlink = 0;
 unsigned long lastAccel = 0;
@@ -40,6 +44,7 @@ AstraMotors FanMotor(FAN_MOTOR_ID, sparkMax_ctrlType::kDutyCycle, true);
 
 // Declarations
 void Stop();
+void Brake(bool enable);
 
 void setup()
 {
@@ -71,54 +76,33 @@ void setup()
 void loop()
 {
   // put your main code here, to run repeatedly:
+  if (millis() - lastServoMoveTime >= servoSpeed)
+  {
+    lastServoMoveTime = millis();
+    for (int i = 0; i < 9; i++)
+    {
+      if (currentServoPos[i] < targetServoPos[i])
+      {
+        currentServoPos[i]++;
+        servoReference[i]->write(currentServoPos[i]);
+      }
+      else if (currentServoPos[i] > targetServoPos[i])
+      {
+        currentServoPos[i]--;
+        servoReference[i]->write(currentServoPos[i]);
+      }
+    }
+  }
 
   if (millis() - lastWiggle > 1000)
   {
     lastWiggle = millis();
-    if (servoStates[0])
+    for (int i = 0; i < 9; i++)
     {
-      servoPositions[0] = (servoPositions[0] == 0 ? 180 : 0);
-      valve1.write(servoPositions[0]);
-    }
-    if (servoStates[1])
-    {
-      servoPositions[1] = (servoPositions[1] == 0 ? 180 : 0);
-      valve2.write(servoPositions[1]);
-    }
-    if (servoStates[2])
-    {
-      servoPositions[2] = (servoPositions[2] == 0 ? 180 : 0);
-      valve3.write(servoPositions[2]);
-    }
-    if (servoStates[3])
-    {
-      servoPositions[3] = (servoPositions[3] == 0 ? 180 : 0);
-      distributor1.write(servoPositions[3]);
-    }
-    if (servoStates[4])
-    {
-      servoPositions[4] = (servoPositions[4] == 0 ? 180 : 0);
-      distributor2.write(servoPositions[4]);
-    }
-    if (servoStates[5])
-    {
-      servoPositions[5] = (servoPositions[5] == 0 ? 180 : 0);
-      distributor3.write(servoPositions[5]);
-    }
-    if (servoStates[6])
-    {
-      servoPositions[6] = (servoPositions[6] == 0 ? 180 : 0);
-      chemical1.write(servoPositions[6]);
-    }
-    if (servoStates[7])
-    {
-      servoPositions[7] = (servoPositions[7] == 0 ? 180 : 0);
-      chemical2.write(servoPositions[7]);
-    }
-    if (servoStates[8])
-    {
-      servoPositions[8] = (servoPositions[8] == 0 ? 180 : 0);
-      chemical3.write(servoPositions[8]);
+      if (servoStates[i])
+      {
+        targetServoPos[i] = (targetServoPos[i] == 0 ? 180 : 0);
+      }
     }
 
     // Serial commands
@@ -173,58 +157,19 @@ void loop()
       // To use: servo,[servo number],[degrees]
       else if (args[0] == "servo")
       {
-        switch (args[1].toInt())
-        {
-        case 1:
-          valve1.write(args[2].toInt());
-          break;
-        case 2:
-          valve2.write(args[2].toInt());
-          break;
-        case 3:
-          valve3.write(args[2].toInt());
-          break;
-        case 4:
-          if (args[1].toInt() <= 60)
+        int servo_id = args[1].toInt() - 1; // Get servo id
+        int servo_angle = args[2].toInt();
+
+        if (servo_id >= 0 && servo_id <= 9)
+        { // Validate the servo values
+          if (servo_id >= 3 && servo_id < 9)
           {
-            distributor1.write(args[2].toInt());
+            targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle : 60;
           }
           else
           {
-            distributor1.write(60);
+            targetServoPos[servo_id] = servo_angle;
           }
-          break;
-        case 5:
-          if (args[1].toInt() <= 60)
-          {
-            distributor2.write(args[2].toInt());
-          }
-          else
-          {
-            distributor2.write(60);
-          }
-          break;
-        case 6:
-          if (args[1].toInt() <= 60)
-          {
-            distributor3.write(args[2].toInt());
-          }
-          else
-          {
-            distributor3.write(60);
-          }
-          break;
-        case 7:
-          chemical1.write(args[2].toInt());
-          break;
-        case 8:
-          chemical2.write(args[2].toInt());
-          break;
-        case 9:
-          chemical3.write(args[2].toInt());
-          break;
-        default:
-          break;
         }
       }
       else if (args[0] == "val")
@@ -302,10 +247,10 @@ void loop()
       }
       else if (commandID == CMD_PWMSERVO_SET_DEG)
       {
-        if (canData.size() == 2 && canData[0] > 0 && canData[0] < 4)
+        if (canData.size() == 2 && canData[0] > 0 && canData[0] < 9)
         {
           unsigned servoId = static_cast<unsigned>(canData[0]);
-          servoStates[servoId - 1] = static_cast<bool>(canData[1]);
+          targetServoPos[servoId - 1] = static_cast<int>(canData[1]);
         }
       }
       // Accelerate motors; update the speed for all motors
@@ -316,6 +261,9 @@ void loop()
         {
           FanMotor.accelerate();
         }
+      }
+      else
+      {
       }
 
       // Heartbeat for REV motors
@@ -337,7 +285,7 @@ void loop()
 
         // Only ignore safety timeout if all motors are rotating
         bool allRotating = true;
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 1; i++)
         {
           if (!FanMotor.isRotToPos())
           {
@@ -355,6 +303,10 @@ void loop()
   }
 }
 
+void Brake(bool enable)
+{
+  FanMotor.setBrake(enable);
+}
 void Stop()
 {
   FanMotor.stop();
