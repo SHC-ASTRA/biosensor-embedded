@@ -10,6 +10,7 @@
 #include <ESP32Servo.h>
 #include "AstraMisc.h"
 #include "AstraVicCAN.h"
+#include "AstraREVCAN.h"
 #include "AstraMotors.h"
 
 // Remove to disable the boards inbuilt LED blinking
@@ -17,7 +18,9 @@
 #define CAN_TX 34
 #define CAN_RX 35
 
-#define FAN_MOTOR_ID 1 // TODO: Needs to be confirmed
+#define FAN_MOTOR_ID 1 // TODO: Needs to be confirmed that this is the correct servo
+#define COMMS_UART Serial  // To/from USB for debugging
+
 
 bool ledState = false;
 
@@ -33,18 +36,33 @@ int servoSpeed = 18; // Uses servo steps to determine speed
 long lastWiggle = 0; // For PWM servos
 bool servoStates[9] = {false, false, false, false, false, false, false, false, false};
 
-uint32_t lastBlink = 0;
 unsigned long lastAccel = 0;
+
 unsigned long lastHB = 0;
 int heartBeatNum = 1;
+
 unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
 
 AstraMotors FanMotor(FAN_MOTOR_ID, sparkMax_ctrlType::kDutyCycle, true);
 
+void loop2(void* pvParameters) {
+  while (true) {
+      CAN_sendHeartbeat(heartBeatNum);
+      heartBeatNum++;
+      if (heartBeatNum > 4)
+      {
+          heartBeatNum = 1;
+      }
+      delay(5);
+  }
+}
+
+
+
 // Declarations
 void Stop();
-void Brake(bool enable);
+
 
 void setup()
 {
@@ -71,11 +89,23 @@ void setup()
     Serial.println("CAN bus started!");
   else
     Serial.println("CAN bus failed!");
+
+    xTaskCreatePinnedToCore (
+      loop2,     // Function to implement the task
+      "loop2",   // Name of the task
+      1000,      // Stack size in bytes
+      NULL,      // Task input parameter
+      0,         // Priority of the task
+      NULL,      // Task handle.
+      0          // Core where the task should run
+  );
 }
 
 void loop()
 {
-  // put your main code here, to run repeatedly:
+  
+  
+  
   if (millis() - lastServoMoveTime >= servoSpeed)
   {
     lastServoMoveTime = millis();
@@ -117,10 +147,6 @@ void loop()
       args[0].toLowerCase();         // Make command case-insensitive
       String command = args[0];      // To make processing code more readable
 
-      //--------//
-      //  Misc  //
-      //--------//
-      /**/
       if (command == "ping")
       {
         Serial.println("pong");
@@ -202,23 +228,11 @@ void loop()
         chemical2.write(args[1].toInt());
         chemical3.write(args[1].toInt());
       }
-      // else if (args[0] == "shutdown")
-      // {
-      //   // TODO: Add pins here
-      //   valve1.detach();
-      //   valve2.detach();
-      //   valve3.detach();
-
-      //   distributor1.detach();
-      //   distributor2.detach();
-      //   distributor3.detach();
-
-      //   chemical1.detach();
-      //   chemical2.detach();
-      //   chemical3.detach();
-      // }
     }
 
+
+
+    // CAN
     if (vicCAN.readCan())
     {
       const uint8_t commandID = vicCAN.getCmdId();
@@ -253,30 +267,8 @@ void loop()
           targetServoPos[servoId - 1] = static_cast<int>(canData[1]);
         }
       }
-      // Accelerate motors; update the speed for all motors
-      if (millis() - lastAccel >= 50)
-      {
-        lastAccel = millis();
-        for (int i = 0; i < 4; i++)
-        {
-          FanMotor.accelerate();
-        }
-      }
-      else
-      {
-      }
-
-      // Heartbeat for REV motors
-      if (millis() - lastHB >= 3)
-      {
-        lastHB = millis();
-        CAN_sendHeartbeat(heartBeatNum);
-        heartBeatNum++;
-        if (heartBeatNum > 4)
-        {
-          heartBeatNum = 1;
-        }
-      }
+      // TODO: Add parser for REV command
+    
 
       // Safety timeout
       if (millis() - lastCtrlCmd > 2000) // if no control commands are received for 2 seconds
@@ -303,10 +295,7 @@ void loop()
   }
 }
 
-void Brake(bool enable)
-{
-  FanMotor.setBrake(enable);
-}
+
 void Stop()
 {
   FanMotor.stop();
