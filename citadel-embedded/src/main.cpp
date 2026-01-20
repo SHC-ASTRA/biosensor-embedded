@@ -17,26 +17,21 @@
 #define CAN_TX 34
 #define CAN_RX 35
 
-#define FAN_MOTOR_ID 4 // TODO: Needs to be confirmed
+#define FAN_MOTOR_ID 1 // TODO: Needs to be confirmed
 
 bool ledState = false;
 
 // Defined servos (3 for valves, 3 for distributors, 3 for chemicals)
 Servo valve1, valve2, valve3, distributor1, distributor2, distributor3, chemical1, chemical2, chemical3;
-Servo* servoReference[9] = {&valve1, &valve2, &valve3, &distributor1, &distributor2, &distributor3, &chemical1, &chemical2, &chemical3};
+Servo *servoReference[9] = {&valve1, &valve2, &valve3, &distributor1, &distributor2, &distributor3, &chemical1, &chemical2, &chemical3};
 
-
-int currentServoPos[9] = {0,0,0,0,0,0,0,0,0};
-int targetServoPos[9] = {0,0,0,0,0,0,0,0,0};
+int currentServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+int targetServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 unsigned long lastServoMoveTime = 0;
-int servoSpeed = 15; //Uses servo steps to determine speed
-
+int servoSpeed = 18; // Uses servo steps to determine speed
 
 long lastWiggle = 0; // For PWM servos
 bool servoStates[9] = {false, false, false, false, false, false, false, false, false};
-
-// Valve 1 is servo1, Valve2 is servo2, and so fourth - wanted to have a standard convention for messages
-int servoPositions[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};  
 
 uint32_t lastBlink = 0;
 unsigned long lastAccel = 0;
@@ -49,6 +44,7 @@ AstraMotors FanMotor(FAN_MOTOR_ID, sparkMax_ctrlType::kDutyCycle, true);
 
 // Declarations
 void Stop();
+void Brake(bool enable);
 
 void setup()
 {
@@ -80,27 +76,32 @@ void setup()
 void loop()
 {
   // put your main code here, to run repeatedly:
-  if(millis()- lastServoMoveTime >= servoSpeed){
-    lastServoMoveTime = millis(); 
-    for(int i = 0; i < 9; i++){
-      if(currentServoPos[i] < targetServoPos[i]){
+  if (millis() - lastServoMoveTime >= servoSpeed)
+  {
+    lastServoMoveTime = millis();
+    for (int i = 0; i < 9; i++)
+    {
+      if (currentServoPos[i] < targetServoPos[i])
+      {
         currentServoPos[i]++;
         servoReference[i]->write(currentServoPos[i]);
       }
-      else if(currentServoPos[i] > targetServoPos[i]){
+      else if (currentServoPos[i] > targetServoPos[i])
+      {
         currentServoPos[i]--;
         servoReference[i]->write(currentServoPos[i]);
       }
     }
-  } 
-
+  }
 
   if (millis() - lastWiggle > 1000)
   {
     lastWiggle = millis();
-    for(int i =0; i < 9; i++){
-      if(servoStates[i]){
-        targetServoPos[i] = (targetServoPos[i] == 0 ? 180: 0);
+    for (int i = 0; i < 9; i++)
+    {
+      if (servoStates[i])
+      {
+        targetServoPos[i] = (targetServoPos[i] == 0 ? 180 : 0);
       }
     }
 
@@ -156,15 +157,17 @@ void loop()
       // To use: servo,[servo number],[degrees]
       else if (args[0] == "servo")
       {
-        int servo_id = args[1].toInt() -1; //Get servo id
+        int servo_id = args[1].toInt() - 1; // Get servo id
         int servo_angle = args[2].toInt();
 
-
-        if(servo_id >= 0 && servo_id <=9){ //Validate the servo values
-          if(servo_id >=3 &&  servo_id <9){
-            targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle: 60;
+        if (servo_id >= 0 && servo_id <= 9)
+        { // Validate the servo values
+          if (servo_id >= 3 && servo_id < 9)
+          {
+            targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle : 60;
           }
-          else{
+          else
+          {
             targetServoPos[servo_id] = servo_angle;
           }
         }
@@ -244,10 +247,10 @@ void loop()
       }
       else if (commandID == CMD_PWMSERVO_SET_DEG)
       {
-        if (canData.size() == 2 && canData[0] > 0 && canData[0] < 4)
+        if (canData.size() == 2 && canData[0] > 0 && canData[0] < 9)
         {
           unsigned servoId = static_cast<unsigned>(canData[0]);
-          servoStates[servoId - 1] = static_cast<bool>(canData[1]);
+          targetServoPos[servoId - 1] = static_cast<int>(canData[1]);
         }
       }
       // Accelerate motors; update the speed for all motors
@@ -258,6 +261,9 @@ void loop()
         {
           FanMotor.accelerate();
         }
+      }
+      else
+      {
       }
 
       // Heartbeat for REV motors
@@ -279,7 +285,7 @@ void loop()
 
         // Only ignore safety timeout if all motors are rotating
         bool allRotating = true;
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 1; i++)
         {
           if (!FanMotor.isRotToPos())
           {
@@ -297,6 +303,10 @@ void loop()
   }
 }
 
+void Brake(bool enable)
+{
+  FanMotor.setBrake(enable);
+}
 void Stop()
 {
   FanMotor.stop();
