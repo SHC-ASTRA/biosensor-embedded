@@ -18,9 +18,8 @@
 #define CAN_TX 34
 #define CAN_RX 35
 
-#define FAN_MOTOR_ID 1 // TODO: Needs to be confirmed that this is the correct servo
-#define COMMS_UART Serial  // To/from USB for debugging
-
+#define FAN_MOTOR_ID 1    // TODO: Needs to be confirmed that this is the correct CAN ID
+#define COMMS_UART Serial // To/from USB for debugging
 
 bool ledState = false;
 
@@ -34,7 +33,6 @@ unsigned long lastServoMoveTime = 0;
 int servoSpeed = 18; // Uses servo steps to determine speed
 
 long lastWiggle = 0; // For PWM servos
-bool servoStates[9] = {false, false, false, false, false, false, false, false, false};
 
 unsigned long lastAccel = 0;
 
@@ -46,23 +44,22 @@ unsigned long lastMotorStatus = 0;
 
 AstraMotors FanMotor(FAN_MOTOR_ID, sparkMax_ctrlType::kDutyCycle, true);
 
-void loop2(void* pvParameters) {
-  while (true) {
-      CAN_sendHeartbeat(heartBeatNum);
-      heartBeatNum++;
-      if (heartBeatNum > 4)
-      {
-          heartBeatNum = 1;
-      }
-      delay(5);
+void loop2(void *pvParameters)
+{
+  while (true)
+  {
+    CAN_sendHeartbeat(heartBeatNum);
+    heartBeatNum++;
+    if (heartBeatNum > 4)
+    {
+      heartBeatNum = 1;
+    }
+    delay(5);
   }
 }
 
-
-
 // Declarations
 void Stop();
-
 
 void setup()
 {
@@ -90,22 +87,22 @@ void setup()
   else
     Serial.println("CAN bus failed!");
 
-    xTaskCreatePinnedToCore (
-      loop2,     // Function to implement the task
-      "loop2",   // Name of the task
-      1000,      // Stack size in bytes
-      NULL,      // Task input parameter
-      0,         // Priority of the task
-      NULL,      // Task handle.
-      0          // Core where the task should run
+  // TODO: Confirm that this is working- is CAN receiving a heartbeat?
+  // Pin the CAN heartbeat task to core
+  xTaskCreatePinnedToCore(
+      loop2,   // Function to implement the task
+      "loop2", // Name of the task
+      1000,    // Stack size in bytes
+      NULL,    // Task input parameter
+      0,       // Priority of the task
+      NULL,    // Task handle.
+      0        // Core where the task should run
   );
 }
 
 void loop()
 {
-  
-  
-  
+
   if (millis() - lastServoMoveTime >= servoSpeed)
   {
     lastServoMoveTime = millis();
@@ -129,7 +126,7 @@ void loop()
     lastWiggle = millis();
     for (int i = 0; i < 9; i++)
     {
-      if (servoStates[i])
+      if (currentServoPos[i])
       {
         targetServoPos[i] = (targetServoPos[i] == 0 ? 180 : 0);
       }
@@ -157,7 +154,7 @@ void loop()
         Serial.println(millis());
       }
 
-      else if (command == "led") // This command will not work when using boards that do not have a inbuilt LED (i.e. the Dev Module 1)
+      else if (command == "led") // This command will not work when using boards that do not have a inbuilt LED (i.e. the ESP32 Dev Module 1)
       {
         digitalWrite(LED_BUILTIN, !ledState);
         ledState = !ledState;
@@ -187,17 +184,26 @@ void loop()
         int servo_angle = args[2].toInt();
 
         if (servo_id >= 0 && servo_id <= 9)
-        { // Validate the servo values
-          if (servo_id >= 3 && servo_id < 9)
+        {
+          // Validate the servo values - Servo IDs 6-9 (the chemical servos) should only move 60 degrees to prevent overextension and other issues
+
+          if (servo_id >= 6 && servo_id <= 9)
           {
             targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle : 60;
           }
+          // Other servos can move the full 180 degrees
           else
           {
             targetServoPos[servo_id] = servo_angle;
           }
         }
       }
+      // Commands that move all servos in a group
+      // * val = valve servos
+      // * dist = distributor servos
+      // * chem = chemical servos
+      // * all = all servos (might cause power issues)
+
       else if (args[0] == "val")
       {
         valve1.write(args[1].toInt());
@@ -230,8 +236,6 @@ void loop()
       }
     }
 
-
-
     // CAN
     if (vicCAN.readCan())
     {
@@ -252,13 +256,14 @@ void loop()
       }
       Serial.println();
 
-      // Misc
+      // Misc CAN commands
 
       if (commandID == CMD_PING)
       {
         vicCAN.respond(1); // "pong"
         Serial.println("Received ping over CAN");
       }
+      // Takes a servo ID between 1 and 9 as well as the angle that the commanded servo should move to
       else if (commandID == CMD_PWMSERVO_SET_DEG)
       {
         if (canData.size() == 2 && canData[0] > 0 && canData[0] < 9)
@@ -268,7 +273,6 @@ void loop()
         }
       }
       // TODO: Add parser for REV command
-    
 
       // Safety timeout
       if (millis() - lastCtrlCmd > 2000) // if no control commands are received for 2 seconds
@@ -294,8 +298,7 @@ void loop()
     }
   }
 }
-
-
+// Stop fan motor
 void Stop()
 {
   FanMotor.stop();
