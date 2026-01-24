@@ -18,7 +18,12 @@
 #define CAN_TX 34
 #define CAN_RX 35
 
-#define FAN_MOTOR_ID 1    // TODO: Needs to be confirmed that this is the correct CAN ID
+#define FAN_MOTOR_ID 1   // TODO: Needs to be confirmed that this is the correct CAN ID
+#define REV_PWM_MIN 1000 // us  -1.0 duty
+#define REV_PWM_MAX 2000 // us  1.0 duty
+
+#define SPARK_PWM 26
+
 #define COMMS_UART Serial // To/from USB for debugging
 
 bool ledState = false;
@@ -42,7 +47,8 @@ int heartBeatNum = 1;
 unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
 
-AstraMotors FanMotor(FAN_MOTOR_ID, sparkMax_ctrlType::kDutyCycle, true);
+// Control the NEO550 functioning as the fan motor
+Servo fanMotor;
 
 void loop2(void *pvParameters)
 {
@@ -82,6 +88,8 @@ void setup()
   chemical2.attach(26);
   chemical3.attach(27);
 
+  fanMotor.attach(SPARK_PWM, REV_PWM_MIN, REV_PWM_MAX);
+
   if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
     Serial.println("CAN bus started!");
   else
@@ -106,6 +114,7 @@ void loop()
   if (millis() - lastServoMoveTime >= servoSpeed)
   {
     lastServoMoveTime = millis();
+
     for (int i = 0; i < 9; i++)
     {
       if (currentServoPos[i] < targetServoPos[i])
@@ -121,20 +130,21 @@ void loop()
     }
   }
 
-  if (millis() - lastWiggle > 1000)
+  if (millis() - lastWiggle > 500)
   {
+    // Move Servos ID 2-5 (The Distributor Servos) back and fourth to distribute the dirt into the tubes
     lastWiggle = millis();
-    for (int i = 0; i < 9; i++)
+    for (int i = 2; i < 5; i++)
     {
       if (currentServoPos[i])
       {
         targetServoPos[i] = (targetServoPos[i] == 0 ? 180 : 0);
       }
     }
-
+  }
     // Serial commands
-    if (Serial.available())
-    {
+  if (Serial.available())
+  {
       String input = Serial.readStringUntil('\n');
       Serial.println(input);
 
@@ -199,10 +209,10 @@ void loop()
         }
       }
       // Commands that move all servos in a group
-      // * val = valve servos
-      // * dist = distributor servos
-      // * chem = chemical servos
-      // * all = all servos (might cause power issues)
+      //  val = valve servos
+      //  dist = distributor servos
+      //  chem = chemical servos
+      //  all = all servos (might cause power issues)
 
       else if (args[0] == "val")
       {
@@ -274,32 +284,26 @@ void loop()
       }
       // TODO: Add parser for REV command
 
-      // Safety timeout
-      if (millis() - lastCtrlCmd > 2000) // if no control commands are received for 2 seconds
+      // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
+      if (millis() - lastCtrlCmd > 2000)
       {
         lastCtrlCmd = millis();
-
-        // Only ignore safety timeout if all motors are rotating
-        bool allRotating = true;
-        for (int i = 0; i < 1; i++)
-        {
-          if (!FanMotor.isRotToPos())
-          {
-            allRotating = false;
-            break;
-          }
-        }
-        if (!allRotating)
-        {
-          Serial.println("No Control, Safety Timeout");
-          Stop();
+        fanMotor.write(0);
+      }
+      else if (commandID == CMD_REV_STOP)
+      {
+        lastCtrlCmd = millis();
+        fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
+      }
+      // Converts duty cycle input into writeMicroseconds range of the NEO
+      else if (commandID == CMD_REV_SET_DUTY) {
+        if (canData.size() == 1) {
+            lastCtrlCmd = millis();
+            int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
+            fanMotor.writeMicroseconds(value);
+            Serial.print("Setting REV duty to ");
+            Serial.println(value);
         }
       }
-    }
   }
-}
-// Stop fan motor
-void Stop()
-{
-  FanMotor.stop();
 }
