@@ -35,7 +35,7 @@ Servo *servoReference[9] = {&valve1, &valve2, &valve3, &distributor1, &distribut
 int currentServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 int targetServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 unsigned long lastServoMoveTime = 0;
-int servoSpeed = 18; // Uses servo steps to determine speed
+int servoSpeed = 10; // Uses servo steps to determine speed
 
 long lastWiggle = 0; // For PWM servos
 
@@ -134,7 +134,7 @@ void loop()
   {
     // Move Servos ID 2-5 (The Distributor Servos) back and fourth to distribute the dirt into the tubes
     lastWiggle = millis();
-    for (int i = 2; i < 5; i++)
+    for (int i = 3; i < 6; i++)
     {
       if (currentServoPos[i])
       {
@@ -142,168 +142,190 @@ void loop()
       }
     }
   }
-    // Serial commands
+  // Serial commands
   if (Serial.available())
   {
-      String input = Serial.readStringUntil('\n');
-      Serial.println(input);
+    String input = Serial.readStringUntil('\n');
+    Serial.println(input);
 
-      input.trim();                  // Remove preceding and trailing whitespace
-      std::vector<String> args = {}; // Initialize empty vector to hold separated arguments
-      parseInput(input, args);       // Separate `input` by commas and place into args vector
-      args[0].toLowerCase();         // Make command case-insensitive
-      String command = args[0];      // To make processing code more readable
+    input.trim();                  // Remove preceding and trailing whitespace
+    std::vector<String> args = {}; // Initialize empty vector to hold separated arguments
+    parseInput(input, args);       // Separate `input` by commas and place into args vector
+    args[0].toLowerCase();         // Make command case-insensitive
+    String command = args[0];      // To make processing code more readable
 
-      if (command == "ping")
+    if (command == "ping")
+    {
+      Serial.println("pong");
+    }
+
+    else if (command == "time")
+    {
+      Serial.println(millis());
+    }
+
+    else if (command == "led") // This command will not work when using boards that do not have a inbuilt LED (i.e. the ESP32 Dev Module 1)
+    {
+      digitalWrite(LED_BUILTIN, !ledState);
+      ledState = !ledState;
+    }
+
+    else if (args[0] == "can_relay_tovic")
+    {
+      vicCAN.relayFromSerial(args);
+    }
+
+    else if (args[0] == "can_relay_mode")
+    {
+      if (args[1] == "on")
       {
-        Serial.println("pong");
+        vicCAN.relayOn();
       }
-
-      else if (command == "time")
+      else if (args[1] == "off")
       {
-        Serial.println(millis());
+        vicCAN.relayOff();
       }
+    }
+    // Servos are numbered 1-9
+    // To use: servo,[servo number],[degrees]
+    else if (args[0] == "servo")
+    {
+      int servo_id = args[1].toInt() - 1; // Get servo id
+      int servo_angle = args[2].toInt();
 
-      else if (command == "led") // This command will not work when using boards that do not have a inbuilt LED (i.e. the ESP32 Dev Module 1)
+      if (servo_id >= 0 && servo_id < 9)
       {
-        digitalWrite(LED_BUILTIN, !ledState);
-        ledState = !ledState;
-      }
+        // Validate the servo values - Servo IDs 6-9 (the chemical servos) should only move 60 degrees to prevent overextension and other issues
 
-      else if (args[0] == "can_relay_tovic")
-      {
-        vicCAN.relayFromSerial(args);
-      }
-
-      else if (args[0] == "can_relay_mode")
-      {
-        if (args[1] == "on")
+        if (servo_id >= 1 && servo_id <= 3)
         {
-          vicCAN.relayOn();
+          targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle : 60;
         }
-        else if (args[1] == "off")
+        // Other servos can move the full 180 degrees
+        else
         {
-          vicCAN.relayOff();
+          targetServoPos[servo_id] = servo_angle;
         }
       }
-      // Servos are numbered 1-9
-      // To use: servo,[servo number],[degrees]
-      else if (args[0] == "servo")
-      {
-        int servo_id = args[1].toInt() - 1; // Get servo id
-        int servo_angle = args[2].toInt();
+    }
+    // Commands that move all servos in a group
+    //  val = valve servos
+    //  dist = distributor servos
+    //  chem = chemical servos
+    //  all = all servos (might cause power issues)
 
-        if (servo_id >= 0 && servo_id <= 9)
-        {
-          // Validate the servo values - Servo IDs 6-9 (the chemical servos) should only move 60 degrees to prevent overextension and other issues
+    else if (args[0] == "val")
+    {
+      valve1.write(args[1].toInt());
+      valve2.write(args[1].toInt());
+      valve3.write(args[1].toInt());
+    }
+    else if (args[0] == "dist")
+    {
+      distributor1.write(args[1].toInt());
+      distributor2.write(args[1].toInt());
+      distributor3.write(args[1].toInt());
+    }
+    else if (args[0] == "chem")
+    {
 
-          if (servo_id >= 6 && servo_id <= 9)
-          {
-            targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle : 60;
-          }
-          // Other servos can move the full 180 degrees
-          else
-          {
-            targetServoPos[servo_id] = servo_angle;
-          }
-        }
-      }
-      // Commands that move all servos in a group
-      //  val = valve servos
-      //  dist = distributor servos
-      //  chem = chemical servos
-      //  all = all servos (might cause power issues)
-
-      else if (args[0] == "val")
+      if (args[1].toInt() >= 55)
       {
-        valve1.write(args[1].toInt());
-        valve2.write(args[1].toInt());
-        valve3.write(args[1].toInt());
+        chemical1.write(55);
+        chemical2.write(55);
+        chemical3.write(55);
       }
-      else if (args[0] == "dist")
+      else
       {
-        distributor1.write(args[1].toInt());
-        distributor2.write(args[1].toInt());
-        distributor3.write(args[1].toInt());
-      }
-      else if (args[0] == "chem")
-      {
-        chemical1.write(args[1].toInt());
-        chemical2.write(args[1].toInt());
-        chemical3.write(args[1].toInt());
-      }
-      else if (args[0] == "all")
-      {
-        valve1.write(args[1].toInt());
-        valve2.write(args[1].toInt());
-        valve3.write(args[1].toInt());
-        distributor1.write(args[1].toInt());
-        distributor2.write(args[1].toInt());
-        distributor3.write(args[1].toInt());
         chemical1.write(args[1].toInt());
         chemical2.write(args[1].toInt());
         chemical3.write(args[1].toInt());
       }
     }
-
-    // CAN
-    if (vicCAN.readCan())
+    else if (args[0] == "all")
     {
-      const uint8_t commandID = vicCAN.getCmdId();
-      static std::vector<double> canData;
-      vicCAN.parseData(canData);
+      valve1.write(args[1].toInt());
+      valve2.write(args[1].toInt());
+      valve3.write(args[1].toInt());
+      distributor1.write(args[1].toInt());
+      distributor2.write(args[1].toInt());
+      distributor3.write(args[1].toInt());
 
-      Serial.print("VicCAN: ");
-      Serial.print(commandID);
-      Serial.print("; ");
-      if (canData.size() > 0)
+      if (args[1].toInt() >= 55)
       {
-        for (const double &data : canData)
-        {
-          Serial.print(data);
-          Serial.print(", ");
-        }
+        chemical1.write(55);
+        chemical2.write(55);
+        chemical3.write(55);
       }
-      Serial.println();
-
-      // Misc CAN commands
-
-      if (commandID == CMD_PING)
+      else
       {
-        vicCAN.respond(1); // "pong"
-        Serial.println("Received ping over CAN");
+        chemical1.write(args[1].toInt());
+        chemical2.write(args[1].toInt());
+        chemical3.write(args[1].toInt());
       }
-      // Takes a servo ID between 1 and 9 as well as the angle that the commanded servo should move to
-      else if (commandID == CMD_PWMSERVO_SET_DEG)
-      {
-        if (canData.size() == 2 && canData[0] > 0 && canData[0] < 9)
-        {
-          unsigned servoId = static_cast<unsigned>(canData[0]);
-          targetServoPos[servoId - 1] = static_cast<int>(canData[1]);
-        }
-      }
-      // TODO: Add parser for REV command
+    }
+  }
 
-      // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
-      if (millis() - lastCtrlCmd > 2000)
+  // CAN
+  if (vicCAN.readCan())
+  {
+    const uint8_t commandID = vicCAN.getCmdId();
+    static std::vector<double> canData;
+    vicCAN.parseData(canData);
+
+    Serial.print("VicCAN: ");
+    Serial.print(commandID);
+    Serial.print("; ");
+    if (canData.size() > 0)
+    {
+      for (const double &data : canData)
+      {
+        Serial.print(data);
+        Serial.print(", ");
+      }
+    }
+    Serial.println();
+
+    // Misc CAN commands
+
+    if (commandID == CMD_PING)
+    {
+      vicCAN.respond(1); // "pong"
+      Serial.println("Received ping over CAN");
+    }
+    // Takes a servo ID between 1 and 9 as well as the angle that the commanded servo should move to
+    else if (commandID == CMD_PWMSERVO_SET_DEG)
+    {
+      if (canData.size() == 2 && canData[0] > 0 && canData[0] < 9)
+      {
+        unsigned servoId = static_cast<unsigned>(canData[0]);
+        targetServoPos[servoId - 1] = static_cast<int>(canData[1]);
+      }
+    }
+    // TODO: Add parser for REV command
+
+    // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
+    if (millis() - lastCtrlCmd > 2000)
+    {
+      lastCtrlCmd = millis();
+      fanMotor.write(0);
+    }
+    else if (commandID == CMD_REV_STOP)
+    {
+      lastCtrlCmd = millis();
+      fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
+    }
+    // Converts duty cycle input into writeMicroseconds range of the NEO
+    else if (commandID == CMD_REV_SET_DUTY)
+    {
+      if (canData.size() == 1)
       {
         lastCtrlCmd = millis();
-        fanMotor.write(0);
+        int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
+        fanMotor.writeMicroseconds(value);
+        Serial.print("Setting REV duty to ");
+        Serial.println(value);
       }
-      else if (commandID == CMD_REV_STOP)
-      {
-        lastCtrlCmd = millis();
-        fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
-      }
-      // Converts duty cycle input into writeMicroseconds range of the NEO
-      else if (commandID == CMD_REV_SET_DUTY) {
-        if (canData.size() == 1) {
-            lastCtrlCmd = millis();
-            int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
-            fanMotor.writeMicroseconds(value);
-            Serial.print("Setting REV duty to ");
-            Serial.println(value);
-        }
-      }
+    }
   }
 }
