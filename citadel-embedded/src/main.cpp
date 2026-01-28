@@ -15,7 +15,7 @@
 
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
-#define CAN_TX 34
+#define CAN_TX 33
 #define CAN_RX 35
 
 #define FAN_MOTOR_ID 1   // TODO: Needs to be confirmed that this is the correct CAN ID
@@ -46,6 +46,12 @@ int heartBeatNum = 1;
 
 unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
+
+// Variables for CAN commands- since all servos in a group should be writing the same
+int groupID;
+int valveAngle;
+int distributorAngle;
+int chemicalAngle;
 
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
@@ -293,16 +299,58 @@ void loop()
       vicCAN.respond(1); // "pong"
       Serial.println("Received ping over CAN");
     }
-    // Takes a servo ID between 1 and 9 as well as the angle that the commanded servo should move to
-    else if (commandID == CMD_PWMSERVO_SET_DEG)
-    {
-      if (canData.size() == 2 && canData[0] > 0 && canData[0] < 9)
-      {
-        unsigned servoId = static_cast<unsigned>(canData[0]);
-        targetServoPos[servoId - 1] = static_cast<int>(canData[1]);
+    
+    if (commandID == 40){
+      groupID = canData[0];
+      valveAngle = canData[1];
+      distributorAngle = canData[2];
+      chemicalAngle = canData[3];
+      // Valve group
+      if(groupID == 1){
+        valve1.write(valveAngle);
+        valve2.write(valveAngle);
+        valve3.write(valveAngle);
+        distributor1.write(distributorAngle);
+        distributor2.write(distributorAngle);
+        distributor3.write(distributorAngle);
+        chemical1.write(distributorAngle);
+        chemical2.write(distributorAngle);
+        chemical3.write(distributorAngle);
       }
+      // Distributor Group
+      else if (groupID == 2)
+      {
+        valve1.write(valveAngle);
+        valve2.write(valveAngle);
+        valve3.write(valveAngle);
+        distributor1.write(distributorAngle);
+        distributor2.write(distributorAngle);
+        distributor3.write(distributorAngle);
+        chemical1.write(distributorAngle);
+        chemical2.write(distributorAngle);
+        chemical3.write(distributorAngle);
+      }
+      // Chemical group
+      else if (groupID == 3)
+      {
+        valve1.write(valveAngle);
+        valve2.write(valveAngle);
+        valve3.write(valveAngle);
+        distributor1.write(distributorAngle);
+        distributor2.write(distributorAngle);
+        distributor3.write(distributorAngle);
+        chemical1.write(distributorAngle);
+        chemical2.write(distributorAngle);
+        chemical3.write(distributorAngle);
+      }
+      
+      
     }
-    // TODO: Add parser for REV command
+    // REV motor control 
+    // TODO: Confirm that this is correct
+    if (commandID ==19){  
+      fanMotor.write(canData[0]);
+    }
 
     // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
     if (millis() - lastCtrlCmd > 2000)
