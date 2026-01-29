@@ -305,6 +305,9 @@ void loop()
       valveAngle = canData[1];
       distributorAngle = canData[2];
       chemicalAngle = canData[3];
+      if(chemicalAngle >= 55){
+        chemicalAngle = 55;
+      }
       // Valve group
       if(groupID == 1){
         valve1.write(valveAngle);
@@ -346,10 +349,16 @@ void loop()
       
       
     }
-    // REV motor control 
-    // TODO: Confirm that this is correct
+     // Converts duty cycle input into writeMicroseconds range of the NEO
     if (commandID ==19){  
-      fanMotor.write(canData[0]);
+      if (canData.size() == 1)
+      {
+        lastCtrlCmd = millis();
+        int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
+        fanMotor.writeMicroseconds(value);
+        Serial.print("Setting REV duty to ");
+        Serial.println(value);
+      }
     }
 
     // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
@@ -362,18 +371,6 @@ void loop()
     {
       lastCtrlCmd = millis();
       fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
-    }
-    // Converts duty cycle input into writeMicroseconds range of the NEO
-    else if (commandID == CMD_REV_SET_DUTY)
-    {
-      if (canData.size() == 1)
-      {
-        lastCtrlCmd = millis();
-        int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
-        fanMotor.writeMicroseconds(value);
-        Serial.print("Setting REV duty to ");
-        Serial.println(value);
-      }
     }
   }
 }
