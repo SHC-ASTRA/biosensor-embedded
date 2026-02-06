@@ -49,6 +49,13 @@ int heartBeatNum = 1;
 unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
 
+unsigned long previousMillis = 0;
+const long interval = 15;
+
+int targetPos = 180;
+int currentPos = 0;
+int increment = 1;
+
 // Variables for CAN commands- since all servos in a group should be writing the same
 int valveID;
 int tubeID;
@@ -116,6 +123,8 @@ void setup()
   );
 }
 
+
+
 void loop()
 {
 
@@ -138,18 +147,7 @@ void loop()
     }
   }
 
-  if (millis() - lastWiggle > 500)
-  {
-    // Move Servos ID 2-5 (The Distributor Servos) back and fourth to distribute the dirt into the tubes
-    lastWiggle = millis();
-    for (int i = 3; i < 6; i++)
-    {
-      if (currentServoPos[i])
-      {
-        targetServoPos[i] = (targetServoPos[i] == 0 ? 180 : 0);
-      }
-    }
-  }
+  
   // Serial commands
   if (Serial.available())
   {
@@ -355,6 +353,71 @@ void loop()
       else if (tubeID == 2)
       {
         chemical3.write(millimetersToMove);
+      }
+
+      if (distributorID == 0)
+      {
+        // Prototyping sweeping motion for distributor servo without interrupting board processes
+        unsigned long currentMillis = millis();
+        if(currentMillis - previousMillis >= interval){
+          previousMillis = currentMillis;
+          if(currentPos != targetPos){
+            if(currentPos < targetPos){
+              currentPos += increment;
+            }
+            else{
+              currentPos -= increment;
+
+            }
+            distributor1.write(currentPos);
+          }
+        }
+        if (currentPos == 180) targetPos = 0;
+        if (currentPos == 0) targetPos = 180;
+      }
+      else if (distributorID == 1)
+      {
+        unsigned long currentMillis = millis();
+        if(currentMillis - previousMillis >= interval){
+          previousMillis = currentMillis;
+          if(currentPos != targetPos){
+            if(currentPos < targetPos){
+              currentPos += increment;
+            }
+            else{
+              currentPos -= increment;
+
+            }
+            distributor2.write(currentPos);
+          }
+        }
+        if (currentPos == 180) targetPos = 0;
+        if (currentPos == 0) targetPos = 180;
+      }
+      else if (distributorID == 2)
+      {
+        unsigned long currentMillis = millis();
+        if(currentMillis - previousMillis >= interval){
+          previousMillis = currentMillis;
+          if(currentPos != targetPos){
+            if(currentPos < targetPos){
+              currentPos += increment;
+            }
+            else{
+              currentPos -= increment;
+
+            }
+            distributor3.write(currentPos);
+          }
+        }
+        if (currentPos == 180) targetPos = 0;
+        if (currentPos == 0) targetPos = 180;
+      }
+      else
+      {
+        distributor1.write(0);
+        distributor2.write(1);
+        distributor3.write(2);
       }
 
       
