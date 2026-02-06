@@ -8,6 +8,8 @@
 #include <Arduino.h>
 #include <cmath>
 #include <ESP32Servo.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
 #include "AstraMisc.h"
 #include "AstraVicCAN.h"
 #include "AstraREVCAN.h"
@@ -26,11 +28,29 @@
 
 #define COMMS_UART Serial // To/from USB for debugging
 
+#define SERVOMIN 150  // This is the 'minimum' pulse length count (out of 4096)
+#define SERVOMAX 600  // This is the 'maximum' pulse length count (out of 4096)
+#define USMIN 600     // This is the rounded 'minimum' microsecond length based on the minimum pulse of 150
+#define USMAX 2400    // This is the rounded 'maximum' microsecond length based on the maximum pulse of 600
+#define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
+
 bool ledState = false;
 
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
 // Defined servos (3 for valves, 3 for distributors, 3 for chemicals)
-Servo valve1, valve2, valve3, distributor1, distributor2, distributor3, chemical1, chemical2, chemical3;
-Servo *servoReference[9] = {&valve1, &valve2, &valve3, &distributor1, &distributor2, &distributor3, &chemical1, &chemical2, &chemical3};
+// TODO: Assign these when the board is assembled
+const uint8_t valve1 = 0;
+const uint8_t valve2 = 1;
+const uint8_t valve3 = 2;
+const uint8_t distributor1 = 3;
+const uint8_t distributor2 = 4;
+const uint8_t distributor3 = 5;
+const uint8_t chemical1 = 6;
+const uint8_t chemical2 = 7;
+const uint8_t chemical3 = 8;
+
+uint8_t servos[] = {valve1, valve2, valve3, distributor1, distributor2, distributor3, chemical1, chemical2, chemical3};
 
 int currentServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 int targetServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -48,7 +68,7 @@ unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
 
 // Variables for CAN commands- since all servos in a group should be writing the same
-int groupID;
+int tubeID;
 int valveAngle;
 int distributorAngle;
 int chemicalAngle;
@@ -79,20 +99,9 @@ void setup()
   // Actual pins From bottom facing the USB C port- 25,13,27,18,22
   // Top Left: 14,26,19,23 (last 2 on the top are not used)
   Serial.begin(SERIAL_BAUD);
-  // Valves are on top of the unit
-  valve1.attach(13);
-  valve2.attach(14);
-  valve3.attach(18);
-
-  // Distributors are on each of the pieces that hang down
-  distributor1.attach(19);
-  distributor2.attach(22);
-  distributor3.attach(23);
-
-  // Chemical servos are in the back of the unit (the larger servos)
-  chemical1.attach(25);
-  chemical2.attach(26);
-  chemical3.attach(27);
+  // Set up pwm
+  pwm.begin();
+  pwm.setPWMFreq(60);
 
   fanMotor.attach(SPARK_PWM, REV_PWM_MIN, REV_PWM_MAX);
 
@@ -112,6 +121,11 @@ void setup()
       NULL,    // Task handle.
       0        // Core where the task should run
   );
+}
+void setServoAngle(uint8_t channel, double angle)
+{
+  int servoPulseLength = map(angle, 0, 180, SERVOMIN, SERVOMAX);
+  pwm.setPWM(channel, 0, servoPulseLength);
 }
 
 void loop()
@@ -222,52 +236,52 @@ void loop()
 
     else if (args[0] == "val")
     {
-      valve1.write(args[1].toInt());
-      valve2.write(args[1].toInt());
-      valve3.write(args[1].toInt());
+      setServoAngle(valve1, args[1].toInt());
+      setServoAngle(valve2, args[1].toInt());
+      setServoAngle(valve3, args[1].toInt());
     }
     else if (args[0] == "dist")
     {
-      distributor1.write(args[1].toInt());
-      distributor2.write(args[1].toInt());
-      distributor3.write(args[1].toInt());
+      setServoAngle(distributor1, args[1].toInt());
+      setServoAngle(distributor2, args[1].toInt());
+      setServoAngle(distributor3, args[1].toInt());
     }
     else if (args[0] == "chem")
     {
 
       if (args[1].toInt() >= 55)
       {
-        chemical1.write(55);
-        chemical2.write(55);
-        chemical3.write(55);
+        setServoAngle(chemical1, 55);
+        setServoAngle(chemical2, 55);
+        setServoAngle(chemical2, 55);
       }
       else
       {
-        chemical1.write(args[1].toInt());
-        chemical2.write(args[1].toInt());
-        chemical3.write(args[1].toInt());
+        setServoAngle(chemical1, args[1].toInt());
+        setServoAngle(chemical2, args[1].toInt());
+        setServoAngle(chemical3, args[1].toInt());
       }
     }
     else if (args[0] == "all")
     {
-      valve1.write(args[1].toInt());
-      valve2.write(args[1].toInt());
-      valve3.write(args[1].toInt());
-      distributor1.write(args[1].toInt());
-      distributor2.write(args[1].toInt());
-      distributor3.write(args[1].toInt());
+      setServoAngle(valve1, args[1].toInt());
+      setServoAngle(valve2, args[1].toInt());
+      setServoAngle(valve3, args[1].toInt());
+      setServoAngle(distributor1, args[1].toInt());
+      setServoAngle(distributor2, args[1].toInt());
+      setServoAngle(distributor3, args[1].toInt());
 
       if (args[1].toInt() >= 55)
       {
-        chemical1.write(55);
-        chemical2.write(55);
-        chemical3.write(55);
+        setServoAngle(chemical1, 55);
+        setServoAngle(chemical2, 55);
+        setServoAngle(chemical3, 55);
       }
       else
       {
-        chemical1.write(args[1].toInt());
-        chemical2.write(args[1].toInt());
-        chemical3.write(args[1].toInt());
+        setServoAngle(chemical1, args[1].toInt());
+        setServoAngle(chemical2, args[1].toInt());
+        setServoAngle(chemical3, args[1].toInt());
       }
     }
   }
@@ -299,29 +313,33 @@ void loop()
       vicCAN.respond(1); // "pong"
       Serial.println("Received ping over CAN");
     }
-    
-    if (commandID == 40){
-      groupID = canData[0];
+
+    if (commandID == 40)
+    {
+      
+      tubeID = canData[0];
       valveAngle = canData[1];
       distributorAngle = canData[2];
       chemicalAngle = canData[3];
-      if(chemicalAngle >= 55){
+      if (chemicalAngle >= 55)
+      {
         chemicalAngle = 55;
       }
       // Valve group
-      if(groupID == 1){
-        valve1.write(valveAngle);
-        valve2.write(valveAngle);
-        valve3.write(valveAngle);
-        distributor1.write(distributorAngle);
-        distributor2.write(distributorAngle);
-        distributor3.write(distributorAngle);
-        chemical1.write(distributorAngle);
-        chemical2.write(distributorAngle);
-        chemical3.write(distributorAngle);
+      if (tubeID == 1)
+      {
+        setServoAngle(valve1, valveAngle);
+        setServoAngle(valve2, valveAngle);
+        setServoAngle(valve3, valveAngle);
+        setServoAngle(distributor1, distributorAngle);
+        setServoAngle(distributor2, distributorAngle);
+        setServoAngle(distributor3, distributorAngle);
+        setServoAngle(chemical1,chemicalAngle);
+        setServoAngle(chemical2,chemicalAngle);
+        setServoAngle(chemical3,chemicalAngle);
       }
       // Distributor Group
-      else if (groupID == 2)
+      else if (tubeID == 2)
       {
         valve1.write(valveAngle);
         valve2.write(valveAngle);
@@ -334,7 +352,7 @@ void loop()
         chemical3.write(distributorAngle);
       }
       // Chemical group
-      else if (groupID == 3)
+      else if (tubeID == 3)
       {
         valve1.write(valveAngle);
         valve2.write(valveAngle);
@@ -346,11 +364,10 @@ void loop()
         chemical2.write(distributorAngle);
         chemical3.write(distributorAngle);
       }
-      
-      
     }
-     // Converts duty cycle input into writeMicroseconds range of the NEO
-    if (commandID ==19){  
+    // Converts duty cycle input into writeMicroseconds range of the NEO
+    if (commandID == 19)
+    {
       if (canData.size() == 1)
       {
         lastCtrlCmd = millis();
