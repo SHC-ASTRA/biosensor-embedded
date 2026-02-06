@@ -67,11 +67,10 @@ int heartBeatNum = 1;
 unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
 
-// Variables for CAN commands- since all servos in a group should be writing the same
+int valveID;
 int tubeID;
-int valveAngle;
-int distributorAngle;
-int chemicalAngle;
+int millimetersToMove;
+int distributorID;
 
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
@@ -316,78 +315,104 @@ void loop()
 
     if (commandID == 40)
     {
-      
-      tubeID = canData[0];
-      valveAngle = canData[1];
-      distributorAngle = canData[2];
-      chemicalAngle = canData[3];
-      if (chemicalAngle >= 55)
-      {
-        chemicalAngle = 55;
-      }
-      // Valve group
-      if (tubeID == 1)
-      {
-        setServoAngle(valve1, valveAngle);
-        setServoAngle(valve2, valveAngle);
-        setServoAngle(valve3, valveAngle);
-        setServoAngle(distributor1, distributorAngle);
-        setServoAngle(distributor2, distributorAngle);
-        setServoAngle(distributor3, distributorAngle);
-        setServoAngle(chemical1,chemicalAngle);
-        setServoAngle(chemical2,chemicalAngle);
-        setServoAngle(chemical3,chemicalAngle);
-      }
-      // Distributor Group
-      else if (tubeID == 2)
-      {
-        valve1.write(valveAngle);
-        valve2.write(valveAngle);
-        valve3.write(valveAngle);
-        distributor1.write(distributorAngle);
-        distributor2.write(distributorAngle);
-        distributor3.write(distributorAngle);
-        chemical1.write(distributorAngle);
-        chemical2.write(distributorAngle);
-        chemical3.write(distributorAngle);
-      }
-      // Chemical group
-      else if (tubeID == 3)
-      {
-        valve1.write(valveAngle);
-        valve2.write(valveAngle);
-        valve3.write(valveAngle);
-        distributor1.write(distributorAngle);
-        distributor2.write(distributorAngle);
-        distributor3.write(distributorAngle);
-        chemical1.write(distributorAngle);
-        chemical2.write(distributorAngle);
-        chemical3.write(distributorAngle);
-      }
-    }
-    // Converts duty cycle input into writeMicroseconds range of the NEO
-    if (commandID == 19)
-    {
       if (canData.size() == 1)
       {
+        valveID = canData[0];
+      }
+      if (canData.size() == 2)
+      {
+        tubeID = canData[1];
+        millimetersToMove = canData[2];
+        // Multiply for 55 divide by 10 for map - TBD
+        millimetersToMove = ((millimetersToMove * 55) / 10);
+        if (millimetersToMove >= 55)
+        {
+          millimetersToMove = 55;
+        }
+      }
+      if (canData.size() == 4)
+      {
+        distributorID = canData[3];
+      }
+      // If -1 is passed in, close all valves
+      // Valve movement
+      if (valveID == 0)
+      {
+        setServoAngle(valve1, 180);
+      }
+      else if (valveID == 1)
+      {
+        setServoAngle(valve2, 180);
+      }
+      else if (valveID == 2)
+      {
+        setServoAngle(valve3, 180);
+      }
+      else
+      {
+        setServoAngle(valve1, 0);
+        setServoAngle(valve2, 0);
+        setServoAngle(valve3, 0);
+      }
+
+      if (tubeID == 0)
+      {
+        setServoAngle(chemical1, millimetersToMove);
+      }
+      else if (tubeID == 1)
+      {
+        setServoAngle(chemical2, millimetersToMove);
+      }
+      else if (tubeID == 2)
+      {
+        setServoAngle(chemical3, millimetersToMove);
+      }
+
+      if (distributorID == 0)
+      {
+        setServoAngle(distributor1, 180);
+        setServoAngle(distributor1, 0);
+      }
+      else if (distributorID == 1)
+      {
+        setServoAngle(distributor2, 180);
+        setServoAngle(distributor2, 0);
+      }
+      else if (distributorID == 2)
+      {
+        setServoAngle(distributor3, 180);
+        setServoAngle(distributor3, 0);
+      }
+      else
+      {
+        setServoAngle(distributor1, 0);
+        setServoAngle(distributor2, 0);
+        setServoAngle(distributor3, 0);
+      }
+
+      // Converts duty cycle input into writeMicroseconds range of the NEO
+      if (commandID == 19)
+      {
+        if (canData.size() == 1)
+        {
+          lastCtrlCmd = millis();
+          int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
+          fanMotor.writeMicroseconds(value);
+          Serial.print("Setting REV duty to ");
+          Serial.println(value);
+        }
+      }
+
+      // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
+      if (millis() - lastCtrlCmd > 2000)
+      {
         lastCtrlCmd = millis();
-        int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
-        fanMotor.writeMicroseconds(value);
-        Serial.print("Setting REV duty to ");
-        Serial.println(value);
+        fanMotor.write(0);
+      }
+      else if (commandID == CMD_REV_STOP)
+      {
+        lastCtrlCmd = millis();
+        fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
       }
     }
-
-    // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
-    if (millis() - lastCtrlCmd > 2000)
-    {
-      lastCtrlCmd = millis();
-      fanMotor.write(0);
-    }
-    else if (commandID == CMD_REV_STOP)
-    {
-      lastCtrlCmd = millis();
-      fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
-    }
   }
-}
