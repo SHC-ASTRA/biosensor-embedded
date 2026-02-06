@@ -12,6 +12,8 @@
 #include "AstraVicCAN.h"
 #include "AstraREVCAN.h"
 #include "AstraMotors.h"
+#include <iostream>
+#include <typeinfo>
 
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
@@ -48,10 +50,10 @@ unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
 
 // Variables for CAN commands- since all servos in a group should be writing the same
-int groupID;
-int valveAngle;
-int distributorAngle;
-int chemicalAngle;
+int valveID;
+int tubeID;
+int millimetersToMove;
+int distributorID;
 
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
@@ -299,58 +301,67 @@ void loop()
       vicCAN.respond(1); // "pong"
       Serial.println("Received ping over CAN");
     }
-    
-    if (commandID == 40){
-      groupID = canData[0];
-      valveAngle = canData[1];
-      distributorAngle = canData[2];
-      chemicalAngle = canData[3];
-      if(chemicalAngle >= 55){
-        chemicalAngle = 55;
-      }
-      // Valve group
-      if(groupID == 1){
-        valve1.write(valveAngle);
-        valve2.write(valveAngle);
-        valve3.write(valveAngle);
-        distributor1.write(distributorAngle);
-        distributor2.write(distributorAngle);
-        distributor3.write(distributorAngle);
-        chemical1.write(distributorAngle);
-        chemical2.write(distributorAngle);
-        chemical3.write(distributorAngle);
-      }
-      // Distributor Group
-      else if (groupID == 2)
+
+    if (commandID == 40)
+    {
+      if (canData.size() == 1)
       {
-        valve1.write(valveAngle);
-        valve2.write(valveAngle);
-        valve3.write(valveAngle);
-        distributor1.write(distributorAngle);
-        distributor2.write(distributorAngle);
-        distributor3.write(distributorAngle);
-        chemical1.write(distributorAngle);
-        chemical2.write(distributorAngle);
-        chemical3.write(distributorAngle);
+        valveID = canData[0];
       }
-      // Chemical group
-      else if (groupID == 3)
+      if (canData.size() == 2)
       {
-        valve1.write(valveAngle);
-        valve2.write(valveAngle);
-        valve3.write(valveAngle);
-        distributor1.write(distributorAngle);
-        distributor2.write(distributorAngle);
-        distributor3.write(distributorAngle);
-        chemical1.write(distributorAngle);
-        chemical2.write(distributorAngle);
-        chemical3.write(distributorAngle);
+        tubeID = canData[1];
+        millimetersToMove = canData[2];
+        // Multiply for 55 divide by 10 for map - TBD
+        millimetersToMove = ((millimetersToMove * 55) / 10);
+        if (millimetersToMove >= 55)
+        {
+          millimetersToMove = 55;
+        }
       }
-      
+      if (canData.size() == 4)
+      {
+        distributorID = canData[3];
+      }
+      // If -1 is passed in, close all valves
+      // Valve movement
+      if (valveID == 0)
+      {
+        valve1.write(180);
+      }
+      else if (valveID == 1)
+      {
+        valve2.write(180);
+      }
+      else if (valveID == 2)
+      {
+        valve3.write(180);
+      }
+      else
+      {
+        valve1.write(0);
+        valve2.write(0);
+        valve3.write(0);
+      }
+
+      if (tubeID == 0)
+      {
+        chemical1.write(millimetersToMove);
+      }
+      else if (tubeID == 1)
+      {
+        chemical2.write(millimetersToMove);
+      }
+      else if (tubeID == 2)
+      {
+        chemical3.write(millimetersToMove);
+      }
+
       
     }
-     // Converts duty cycle input into writeMicroseconds range of the NEO
-    if (commandID ==19){  
+    // Converts duty cycle input into writeMicroseconds range of the NEO
+    if (commandID == 19)
+    {
       if (canData.size() == 1)
       {
         lastCtrlCmd = millis();
