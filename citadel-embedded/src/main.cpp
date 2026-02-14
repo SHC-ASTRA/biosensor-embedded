@@ -17,14 +17,14 @@
 
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
-#define CAN_TX 33
-#define CAN_RX 35
+#define CAN_TX 16
+#define CAN_RX 17
 
 #define FAN_MOTOR_ID 1   // TODO: Needs to be confirmed that this is the correct CAN ID
 #define REV_PWM_MIN 1000 // us  -1.0 duty
 #define REV_PWM_MAX 2000 // us  1.0 duty
 
-#define SPARK_PWM 26
+#define SPARK_PWM 4
 
 #define COMMS_UART Serial // To/from USB for debugging
 
@@ -65,19 +65,7 @@ int distributorID;
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
 
-void loop2(void *pvParameters)
-{
-  while (true)
-  {
-    CAN_sendHeartbeat(heartBeatNum);
-    heartBeatNum++;
-    if (heartBeatNum > 4)
-    {
-      heartBeatNum = 1;
-    }
-    delay(5);
-  }
-}
+
 
 // Declarations
 void Stop();
@@ -110,17 +98,7 @@ void setup()
   else
     Serial.println("CAN bus failed!");
 
-  // TODO: Confirm that this is working- is CAN receiving a heartbeat?
-  // Pin the CAN heartbeat task to core
-  xTaskCreatePinnedToCore(
-      loop2,   // Function to implement the task
-      "loop2", // Name of the task
-      1000,    // Stack size in bytes
-      NULL,    // Task input parameter
-      0,       // Priority of the task
-      NULL,    // Task handle.
-      0        // Core where the task should run
-  );
+ 
 }
 
 
