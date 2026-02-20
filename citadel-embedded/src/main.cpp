@@ -65,8 +65,6 @@ int distributorID;
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
 
-
-
 // Declarations
 void Stop();
 
@@ -97,11 +95,7 @@ void setup()
     Serial.println("CAN bus started!");
   else
     Serial.println("CAN bus failed!");
-
- 
 }
-
-
 
 void loop()
 {
@@ -125,7 +119,6 @@ void loop()
     }
   }
 
-  
   // Serial commands
   if (Serial.available())
   {
@@ -337,59 +330,77 @@ void loop()
       {
         // Prototyping sweeping motion for distributor servo without interrupting board processes
         unsigned long currentMillis = millis();
-        if(currentMillis - previousMillis >= interval){
-          previousMillis = currentMillis;
-          if(currentPos != targetPos){
-            if(currentPos < targetPos){
-              currentPos += increment;
-            }
-            else{
-              currentPos -= increment;
-
-            }
-            distributor1.write(currentPos);
-          }
-        }
-        if (currentPos == 180) targetPos = 0;
-        if (currentPos == 0) targetPos = 180;
+        // if (currentMillis - previousMillis >= interval)
+        // {
+        //   previousMillis = currentMillis;
+        //   if (currentPos != targetPos)
+        //   {
+        //     if (currentPos < targetPos)
+        //     {
+        //       currentPos += increment;
+        //     }
+        //     else
+        //     {
+        //       currentPos -= increment;
+        //     }
+        //     distributor1.write(currentPos);
+        //   }
+        // }
+        if (currentPos == 180)
+          targetPos = 0;
+        if (currentPos == 0)
+          targetPos = 180;
+        distributor1.write(targetPos);
       }
       else if (distributorID == 1)
       {
-        unsigned long currentMillis = millis();
-        if(currentMillis - previousMillis >= interval){
-          previousMillis = currentMillis;
-          if(currentPos != targetPos){
-            if(currentPos < targetPos){
-              currentPos += increment;
-            }
-            else{
-              currentPos -= increment;
-
-            }
-            distributor2.write(currentPos);
-          }
-        }
-        if (currentPos == 180) targetPos = 0;
-        if (currentPos == 0) targetPos = 180;
+        // unsigned long currentMillis = millis();
+        // if (currentMillis - previousMillis >= interval)
+        // {
+        //   previousMillis = currentMillis;
+        //   if (currentPos != targetPos)
+        //   {
+        //     if (currentPos < targetPos)
+        //     {
+        //       currentPos += increment;
+        //     }
+        //     else
+        //     {
+        //       currentPos -= increment;
+        //     }
+        //     distributor2.write(currentPos);
+        //   }
+        // }
+        if (currentPos == 180)
+          targetPos = 0;
+        if (currentPos == 0)
+          targetPos = 180;
+        distributor2.write(targetPos);
       }
       else if (distributorID == 2)
       {
-        unsigned long currentMillis = millis();
-        if(currentMillis - previousMillis >= interval){
-          previousMillis = currentMillis;
-          if(currentPos != targetPos){
-            if(currentPos < targetPos){
-              currentPos += increment;
-            }
-            else{
-              currentPos -= increment;
-
-            }
-            distributor3.write(currentPos);
-          }
-        }
-        if (currentPos == 180) targetPos = 0;
-        if (currentPos == 0) targetPos = 180;
+        // unsigned long currentMillis = millis();
+        // if (currentMillis - previousMillis >= interval)
+        // {
+        //   previousMillis = currentMillis;
+        //   if (currentPos != targetPos)
+        //   {
+        //     if (currentPos < targetPos)
+        //     {
+        //       currentPos += increment;
+        //     }
+        //     else
+        //     {
+        //       currentPos -= increment;
+        //     }
+        //     distributor3.write(currentPos);
+        //   }
+        // }
+        if (currentPos == 180)
+          targetPos = 0;
+        if (currentPos == 0)
+          targetPos = 180;
+        distributor3.write(targetPos);
       }
       else
       {
@@ -397,8 +408,6 @@ void loop()
         distributor2.write(1);
         distributor3.write(2);
       }
-
-      
     }
     // Converts duty cycle input into writeMicroseconds range of the NEO
     if (commandID == 19)
@@ -423,6 +432,24 @@ void loop()
     {
       lastCtrlCmd = millis();
       fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
+    }
+    else if (commandID == CMD_REV_IDENTIFY)
+    {
+      if (canData.size() == 1)
+      {
+        COMMS_UART.print("rev_id,");
+        COMMS_UART.println(canData[0]);
+      }
+    }
+    else if (commandID == CMD_REV_IDLE_MODE)
+    {
+      if (canData.size() == 1)
+      {
+        if (canData[0] == 0)
+          COMMS_UART.println("brake,off");
+        else if (canData[0] == 1)
+          COMMS_UART.println("brake,on");
+      }
     }
   }
 }
