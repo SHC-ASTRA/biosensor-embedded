@@ -279,18 +279,20 @@ void loop()
       }
       if (canData.size() == 2)
       {
-        tubeID = canData[1];
-        millimetersToMove = canData[2];
+        tubeID = canData[0];
+        millimetersToMove = canData[1];
         // Multiply for 55 divide by 10 for map - TBD
-        millimetersToMove = ((millimetersToMove * 55) / 10);
+        millimetersToMove = ((millimetersToMove * 55) / 30);
         if (millimetersToMove >= 55)
         {
           millimetersToMove = 55;
         }
       }
-      if (canData.size() == 4)
+      if (canData.size() == 4) 
       {
-        distributorID = canData[3];
+        distributor1.write(canData[0] ? 180 : 0);
+        distributor2.write(canData[1] ? 180 : 0);
+        distributor3.write(canData[2] ? 180 : 0);
       }
       // If -1 is passed in, close all valves
       // Valve movement
@@ -324,89 +326,6 @@ void loop()
       else if (tubeID == 2)
       {
         chemical3.write(millimetersToMove);
-      }
-
-      if (distributorID == 0)
-      {
-        // Prototyping sweeping motion for distributor servo without interrupting board processes
-        unsigned long currentMillis = millis();
-        // if (currentMillis - previousMillis >= interval)
-        // {
-        //   previousMillis = currentMillis;
-        //   if (currentPos != targetPos)
-        //   {
-        //     if (currentPos < targetPos)
-        //     {
-        //       currentPos += increment;
-        //     }
-        //     else
-        //     {
-        //       currentPos -= increment;
-        //     }
-        //     distributor1.write(currentPos);
-        //   }
-        // }
-        if (currentPos == 180)
-          targetPos = 0;
-        if (currentPos == 0)
-          targetPos = 180;
-        distributor1.write(targetPos);
-      }
-      else if (distributorID == 1)
-      {
-        // unsigned long currentMillis = millis();
-        // if (currentMillis - previousMillis >= interval)
-        // {
-        //   previousMillis = currentMillis;
-        //   if (currentPos != targetPos)
-        //   {
-        //     if (currentPos < targetPos)
-        //     {
-        //       currentPos += increment;
-        //     }
-        //     else
-        //     {
-        //       currentPos -= increment;
-        //     }
-        //     distributor2.write(currentPos);
-        //   }
-        // }
-        if (currentPos == 180)
-          targetPos = 0;
-        if (currentPos == 0)
-          targetPos = 180;
-        distributor2.write(targetPos);
-      }
-      else if (distributorID == 2)
-      {
-        // unsigned long currentMillis = millis();
-        // if (currentMillis - previousMillis >= interval)
-        // {
-        //   previousMillis = currentMillis;
-        //   if (currentPos != targetPos)
-        //   {
-        //     if (currentPos < targetPos)
-        //     {
-        //       currentPos += increment;
-        //     }
-        //     else
-        //     {
-        //       currentPos -= increment;
-        //     }
-        //     distributor3.write(currentPos);
-        //   }
-        // }
-        if (currentPos == 180)
-          targetPos = 0;
-        if (currentPos == 0)
-          targetPos = 180;
-        distributor3.write(targetPos);
-      }
-      else
-      {
-        distributor1.write(0);
-        distributor2.write(1);
-        distributor3.write(2);
       }
     }
     // Converts duty cycle input into writeMicroseconds range of the NEO
