@@ -61,8 +61,6 @@ long lastWiggle = 0; // For PWM servos
 
 unsigned long lastAccel = 0;
 
-unsigned long lastHB = 0;
-int heartBeatNum = 1;
 
 unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
@@ -75,19 +73,7 @@ int distributorID;
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
 
-void loop2(void *pvParameters)
-{
-  while (true)
-  {
-    CAN_sendHeartbeat(heartBeatNum);
-    heartBeatNum++;
-    if (heartBeatNum > 4)
-    {
-      heartBeatNum = 1;
-    }
-    delay(5);
-  }
-}
+
 
 // Declarations
 void Stop();
@@ -109,17 +95,7 @@ void setup()
   else
     Serial.println("CAN bus failed!");
 
-  // TODO: Confirm that this is working- is CAN receiving a heartbeat?
-  // Pin the CAN heartbeat task to core
-  xTaskCreatePinnedToCore(
-      loop2,   // Function to implement the task
-      "loop2", // Name of the task
-      1000,    // Stack size in bytes
-      NULL,    // Task input parameter
-      0,       // Priority of the task
-      NULL,    // Task handle.
-      0        // Core where the task should run
-  );
+ 
 }
 void setServoAngle(uint8_t channel, double angle)
 {
@@ -130,37 +106,10 @@ void setServoAngle(uint8_t channel, double angle)
 void loop()
 {
 
-  if (millis() - lastServoMoveTime >= servoSpeed)
-  {
-    lastServoMoveTime = millis();
+ 
 
-    for (int i = 0; i < 9; i++)
-    {
-      if (currentServoPos[i] < targetServoPos[i])
-      {
-        currentServoPos[i]++;
-        servoReference[i]->write(currentServoPos[i]);
-      }
-      else if (currentServoPos[i] > targetServoPos[i])
-      {
-        currentServoPos[i]--;
-        servoReference[i]->write(currentServoPos[i]);
-      }
-    }
-  }
-
-  if (millis() - lastWiggle > 500)
-  {
-    // Move Servos ID 2-5 (The Distributor Servos) back and fourth to distribute the dirt into the tubes
-    lastWiggle = millis();
-    for (int i = 3; i < 6; i++)
-    {
-      if (currentServoPos[i])
-      {
-        targetServoPos[i] = (targetServoPos[i] == 0 ? 180 : 0);
-      }
-    }
-  }
+  
+  
   // Serial commands
   if (Serial.available())
   {
@@ -321,18 +270,20 @@ void loop()
       }
       if (canData.size() == 2)
       {
-        tubeID = canData[1];
-        millimetersToMove = canData[2];
+        tubeID = canData[0];
+        millimetersToMove = canData[1];
         // Multiply for 55 divide by 10 for map - TBD
-        millimetersToMove = ((millimetersToMove * 55) / 10);
+        millimetersToMove = ((millimetersToMove * 55) / 30);
         if (millimetersToMove >= 55)
         {
           millimetersToMove = 55;
         }
       }
-      if (canData.size() == 4)
+      if (canData.size() == 4) 
       {
-        distributorID = canData[3];
+        setServoAngle(distributor1, canData[0] ? 180 : 0);
+        setServoAngle(distributor2, canData[1] ? 180 : 0);
+        setServoAngle(distributor3, canData[2] ? 180 : 0);
       }
       // If -1 is passed in, close all valves
       // Valve movement
@@ -368,28 +319,7 @@ void loop()
         setServoAngle(chemical3, millimetersToMove);
       }
 
-      if (distributorID == 0)
-      {
-        setServoAngle(distributor1, 180);
-        setServoAngle(distributor1, 0);
-      }
-      else if (distributorID == 1)
-      {
-        setServoAngle(distributor2, 180);
-        setServoAngle(distributor2, 0);
-      }
-      else if (distributorID == 2)
-      {
-        setServoAngle(distributor3, 180);
-        setServoAngle(distributor3, 0);
-      }
-      else
-      {
-        setServoAngle(distributor1, 0);
-        setServoAngle(distributor2, 0);
-        setServoAngle(distributor3, 0);
-      }
-
+      
       // Converts duty cycle input into writeMicroseconds range of the NEO
       if (commandID == 19)
       {
@@ -413,6 +343,25 @@ void loop()
       {
         lastCtrlCmd = millis();
         fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
+      } 
+      else if (commandID == CMD_REV_IDENTIFY)
+      {
+        if (canData.size() == 1)
+        {
+          COMMS_UART.print("rev_id,");
+          COMMS_UART.println(canData[0]);
+        }
+      }
+      else if (commandID == CMD_REV_IDLE_MODE)
+      {
+        if (canData.size() == 1)
+        {
+          if (canData[0] == 0)
+            COMMS_UART.println("brake,off");
+          else if (canData[0] == 1)
+            COMMS_UART.println("brake,on");
+        }
       }
     }
   }
+}
