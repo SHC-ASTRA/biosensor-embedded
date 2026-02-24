@@ -61,7 +61,6 @@ long lastWiggle = 0; // For PWM servos
 
 unsigned long lastAccel = 0;
 
-
 unsigned long lastCtrlCmd = 0;
 unsigned long lastMotorStatus = 0;
 
@@ -73,295 +72,308 @@ int distributorID;
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
 
-
-
 // Declarations
 void Stop();
 
 void setup()
 {
-  // Servo Pins: 13,14,18,19,22,23,25,26,27
-  // Actual pins From bottom facing the USB C port- 25,13,27,18,22
-  // Top Left: 14,26,19,23 (last 2 on the top are not used)
-  Serial.begin(SERIAL_BAUD);
-  // Set up pwm
-  pwm.begin();
-  pwm.setPWMFreq(60);
+    // Servo Pins: 13,14,18,19,22,23,25,26,27
+    // Actual pins From bottom facing the USB C port- 25,13,27,18,22
+    // Top Left: 14,26,19,23 (last 2 on the top are not used)
+    Serial.begin(SERIAL_BAUD);
+    // Set up pwm
+    pwm.begin();
+    pwm.setPWMFreq(60);
 
-  fanMotor.attach(SPARK_PWM, REV_PWM_MIN, REV_PWM_MAX);
+    fanMotor.attach(SPARK_PWM, REV_PWM_MIN, REV_PWM_MAX);
 
-  if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
-    Serial.println("CAN bus started!");
-  else
-    Serial.println("CAN bus failed!");
-
- 
+    if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
+        Serial.println("CAN bus started!");
+    else
+        Serial.println("CAN bus failed!");
 }
 void setServoAngle(uint8_t channel, double angle)
 {
-  int servoPulseLength = map(angle, 0, 180, SERVOMIN, SERVOMAX);
-  pwm.setPWM(channel, 0, servoPulseLength);
+    int servoPulseLength = map(angle, 0, 180, SERVOMIN, SERVOMAX);
+    pwm.setPWM(channel, 0, servoPulseLength);
 }
 
 void loop()
 {
 
- 
-
-  
-  
-  // Serial commands
-  if (Serial.available())
-  {
-    String input = Serial.readStringUntil('\n');
-    Serial.println(input);
-
-    input.trim();                  // Remove preceding and trailing whitespace
-    std::vector<String> args = {}; // Initialize empty vector to hold separated arguments
-    parseInput(input, args);       // Separate `input` by commas and place into args vector
-    args[0].toLowerCase();         // Make command case-insensitive
-    String command = args[0];      // To make processing code more readable
-
-    if (command == "ping")
+    // Serial commands
+    if (Serial.available())
     {
-      Serial.println("pong");
-    }
+        String input = Serial.readStringUntil('\n');
+        Serial.println(input);
 
-    else if (command == "time")
-    {
-      Serial.println(millis());
-    }
+        input.trim();                  // Remove preceding and trailing whitespace
+        std::vector<String> args = {}; // Initialize empty vector to hold separated arguments
+        parseInput(input, args);       // Separate `input` by commas and place into args vector
+        args[0].toLowerCase();         // Make command case-insensitive
+        String command = args[0];      // To make processing code more readable
 
-    else if (command == "led") // This command will not work when using boards that do not have a inbuilt LED (i.e. the ESP32 Dev Module 1)
-    {
-      digitalWrite(LED_BUILTIN, !ledState);
-      ledState = !ledState;
-    }
-
-    else if (args[0] == "can_relay_tovic")
-    {
-      vicCAN.relayFromSerial(args);
-    }
-
-    else if (args[0] == "can_relay_mode")
-    {
-      if (args[1] == "on")
-      {
-        vicCAN.relayOn();
-      }
-      else if (args[1] == "off")
-      {
-        vicCAN.relayOff();
-      }
-    }
-    // Servos are numbered 1-9
-    // To use: servo,[servo number],[degrees]
-    else if (args[0] == "servo")
-    {
-      int servo_id = args[1].toInt() - 1; // Get servo id
-      int servo_angle = args[2].toInt();
-
-      if (servo_id >= 0 && servo_id < 9)
-      {
-        // Validate the servo values - Servo IDs 6-9 (the chemical servos) should only move 60 degrees to prevent overextension and other issues
-
-        if (servo_id >= 1 && servo_id <= 3)
+        if (command == "ping")
         {
-          targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle : 60;
+            Serial.println("pong");
         }
-        // Other servos can move the full 180 degrees
-        else
+
+        else if (command == "time")
         {
-          targetServoPos[servo_id] = servo_angle;
+            Serial.println(millis());
         }
-      }
-    }
-    // Commands that move all servos in a group
-    //  val = valve servos
-    //  dist = distributor servos
-    //  chem = chemical servos
-    //  all = all servos (might cause power issues)
 
-    else if (args[0] == "val")
-    {
-      setServoAngle(valve1, args[1].toInt());
-      setServoAngle(valve2, args[1].toInt());
-      setServoAngle(valve3, args[1].toInt());
-    }
-    else if (args[0] == "dist")
-    {
-      setServoAngle(distributor1, args[1].toInt());
-      setServoAngle(distributor2, args[1].toInt());
-      setServoAngle(distributor3, args[1].toInt());
-    }
-    else if (args[0] == "chem")
-    {
-
-      if (args[1].toInt() >= 55)
-      {
-        setServoAngle(chemical1, 55);
-        setServoAngle(chemical2, 55);
-        setServoAngle(chemical2, 55);
-      }
-      else
-      {
-        setServoAngle(chemical1, args[1].toInt());
-        setServoAngle(chemical2, args[1].toInt());
-        setServoAngle(chemical3, args[1].toInt());
-      }
-    }
-    else if (args[0] == "all")
-    {
-      setServoAngle(valve1, args[1].toInt());
-      setServoAngle(valve2, args[1].toInt());
-      setServoAngle(valve3, args[1].toInt());
-      setServoAngle(distributor1, args[1].toInt());
-      setServoAngle(distributor2, args[1].toInt());
-      setServoAngle(distributor3, args[1].toInt());
-
-      if (args[1].toInt() >= 55)
-      {
-        setServoAngle(chemical1, 55);
-        setServoAngle(chemical2, 55);
-        setServoAngle(chemical3, 55);
-      }
-      else
-      {
-        setServoAngle(chemical1, args[1].toInt());
-        setServoAngle(chemical2, args[1].toInt());
-        setServoAngle(chemical3, args[1].toInt());
-      }
-    }
-  }
-
-  // CAN
-  if (vicCAN.readCan())
-  {
-    const uint8_t commandID = vicCAN.getCmdId();
-    static std::vector<double> canData;
-    vicCAN.parseData(canData);
-
-    Serial.print("VicCAN: ");
-    Serial.print(commandID);
-    Serial.print("; ");
-    if (canData.size() > 0)
-    {
-      for (const double &data : canData)
-      {
-        Serial.print(data);
-        Serial.print(", ");
-      }
-    }
-    Serial.println();
-
-    // Misc CAN commands
-
-    if (commandID == CMD_PING)
-    {
-      vicCAN.respond(1); // "pong"
-      Serial.println("Received ping over CAN");
-    }
-
-    if (commandID == 40)
-    {
-      if (canData.size() == 1)
-      {
-        valveID = canData[0];
-      }
-      if (canData.size() == 2)
-      {
-        tubeID = canData[0];
-        millimetersToMove = canData[1];
-        // Multiply for 55 divide by 10 for map - TBD
-        millimetersToMove = ((millimetersToMove * 55) / 30);
-        if (millimetersToMove >= 55)
+        else if (command == "led") // This command will not work when using boards that do not have a inbuilt LED (i.e. the ESP32 Dev Module 1)
         {
-          millimetersToMove = 55;
+            digitalWrite(LED_BUILTIN, !ledState);
+            ledState = !ledState;
         }
-      }
-      if (canData.size() == 4) 
-      {
-        setServoAngle(distributor1, canData[0] ? 180 : 0);
-        setServoAngle(distributor2, canData[1] ? 180 : 0);
-        setServoAngle(distributor3, canData[2] ? 180 : 0);
-      }
-      // If -1 is passed in, close all valves
-      // Valve movement
-      if (valveID == 0)
-      {
-        setServoAngle(valve1, 180);
-      }
-      else if (valveID == 1)
-      {
-        setServoAngle(valve2, 180);
-      }
-      else if (valveID == 2)
-      {
-        setServoAngle(valve3, 180);
-      }
-      else
-      {
-        setServoAngle(valve1, 0);
-        setServoAngle(valve2, 0);
-        setServoAngle(valve3, 0);
-      }
 
-      if (tubeID == 0)
-      {
-        setServoAngle(chemical1, millimetersToMove);
-      }
-      else if (tubeID == 1)
-      {
-        setServoAngle(chemical2, millimetersToMove);
-      }
-      else if (tubeID == 2)
-      {
-        setServoAngle(chemical3, millimetersToMove);
-      }
+        else if (args[0] == "can_relay_tovic")
+        {
+            vicCAN.relayFromSerial(args);
+        }
 
-      
-      // Converts duty cycle input into writeMicroseconds range of the NEO
-      if (commandID == 19)
-      {
-        if (canData.size() == 1)
+        else if (args[0] == "can_relay_mode")
         {
-          lastCtrlCmd = millis();
-          int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
-          fanMotor.writeMicroseconds(value);
-          Serial.print("Setting REV duty to ");
-          Serial.println(value);
+            if (args[1] == "on")
+            {
+                vicCAN.relayOn();
+            }
+            else if (args[1] == "off")
+            {
+                vicCAN.relayOff();
+            }
         }
-      }
+        // Servos are numbered 1-9
+        // To use: servo,[servo number],[degrees]
+        // else if (args[0] == "servo")
+        // {
+        //   int servo_id = args[1].toInt() - 1; // Get servo id
+        //   int servo_angle = args[2].toInt();
 
-      // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
-      if (millis() - lastCtrlCmd > 2000)
-      {
-        lastCtrlCmd = millis();
-        fanMotor.write(0);
-      }
-      else if (commandID == CMD_REV_STOP)
-      {
-        lastCtrlCmd = millis();
-        fanMotor.write((REV_PWM_MIN + REV_PWM_MAX) / 2);
-      } 
-      else if (commandID == CMD_REV_IDENTIFY)
-      {
-        if (canData.size() == 1)
-        {
-          COMMS_UART.print("rev_id,");
-          COMMS_UART.println(canData[0]);
-        }
-      }
-      else if (commandID == CMD_REV_IDLE_MODE)
-      {
-        if (canData.size() == 1)
-        {
-          if (canData[0] == 0)
-            COMMS_UART.println("brake,off");
-          else if (canData[0] == 1)
-            COMMS_UART.println("brake,on");
-        }
-      }
+        //   if (servo_id >= 0 && servo_id < 9)
+        //   {
+        //     // Validate the servo values - Servo IDs 6-9 (the chemical servos) should only move 60 degrees to prevent overextension and other issues
+
+        //     if (servo_id >= 1 && servo_id <= 3)
+        //     {
+        //       targetServoPos[servo_id] = (servo_angle <= 60) ? servo_angle : 60;
+        //     }
+        //     // Other servos can move the full 180 degrees
+        //     else
+        //     {
+        //       targetServoPos[servo_id] = servo_angle;
+        //     }
+        //   }
+        // }
+        // // Commands that move all servos in a group
+        // //  val = valve servos
+        // //  dist = distributor servos
+        // //  chem = chemical servos
+        // //  all = all servos (might cause power issues)
+
+        // else if (args[0] == "val")
+        // {
+        //   setServoAngle(valve1, args[1].toInt());
+        //   setServoAngle(valve2, args[1].toInt());
+        //   setServoAngle(valve3, args[1].toInt());
+        // }
+        // else if (args[0] == "dist")
+        // {
+        //   setServoAngle(distributor1, args[1].toInt());
+        //   setServoAngle(distributor2, args[1].toInt());
+        //   setServoAngle(distributor3, args[1].toInt());
+        // }
+        // else if (args[0] == "chem")
+        // {
+
+        //   if (args[1].toInt() >= 55)
+        //   {
+        //     setServoAngle(chemical1, 55);
+        //     setServoAngle(chemical2, 55);
+        //     setServoAngle(chemical2, 55);
+        //   }
+        //   else
+        //   {
+        //     setServoAngle(chemical1, args[1].toInt());
+        //     setServoAngle(chemical2, args[1].toInt());
+        //     setServoAngle(chemical3, args[1].toInt());
+        //   }
+        // }
+        // else if (args[0] == "all")
+        // {
+        //   setServoAngle(valve1, args[1].toInt());
+        //   setServoAngle(valve2, args[1].toInt());
+        //   setServoAngle(valve3, args[1].toInt());
+        //   setServoAngle(distributor1, args[1].toInt());
+        //   setServoAngle(distributor2, args[1].toInt());
+        //   setServoAngle(distributor3, args[1].toInt());
+
+        //   if (args[1].toInt() >= 55)
+        //   {
+        //     setServoAngle(chemical1, 55);
+        //     setServoAngle(chemical2, 55);
+        //     setServoAngle(chemical3, 55);
+        //   }
+        //   else
+        //   {
+        //     setServoAngle(chemical1, args[1].toInt());
+        //     setServoAngle(chemical2, args[1].toInt());
+        //     setServoAngle(chemical3, args[1].toInt());
+        //   }
+        // }
     }
-  }
+
+    // CAN
+    if (vicCAN.readCan())
+    {
+        const uint8_t commandID = vicCAN.getCmdId();
+        static std::vector<double> canData;
+        vicCAN.parseData(canData);
+
+        Serial.print("VicCAN: ");
+        Serial.print(commandID);
+        Serial.print("; ");
+        if (canData.size() > 0)
+        {
+            for (const double &data : canData)
+            {
+                Serial.print(data);
+                Serial.print(", ");
+            }
+        }
+        Serial.println();
+
+        // Misc CAN commands
+
+        if (commandID == CMD_PING)
+        {
+            vicCAN.respond(1); // "pong"
+            Serial.println("Received ping over CAN");
+        }
+        else if (commandID == CMD_REV_SET_DUTY)
+        { // Converts duty cycle input into writeMicroseconds range of the NEO
+            if (canData.size() == 1)
+            {
+                lastCtrlCmd = millis();
+                float percent = canData[0] / 100.0;
+                // Limit to 50% duty cycle per Kade's request
+                if (percent < -0.5)
+                {
+                    percent = -0.5;
+                }
+                else if (percent > 0.5)
+                {
+                    percent = 0.5;
+                }
+                int value = map_d(percent, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
+                fanMotor.writeMicroseconds(value);
+                Serial.print("Setting REV duty to ");
+                Serial.println(value);
+            }
+        }
+
+        else if (commandID == CMD_REV_STOP)
+        {
+            lastCtrlCmd = millis();
+            fanMotor.writeMicroseconds((REV_PWM_MIN + REV_PWM_MAX) / 2);
+        }
+        if (commandID == 40)
+        {
+            if (canData.size() == 1)
+            {
+                valveID = canData[0];
+            }
+            if (canData.size() == 2)
+            {
+                tubeID = canData[0];
+                millimetersToMove = canData[1];
+                // Multiply for 55 divide by 10 for map - TBD
+                millimetersToMove = ((millimetersToMove * 55) / 30);
+                if (millimetersToMove >= 55)
+                {
+                    millimetersToMove = 55;
+                }
+            }
+            if (canData.size() == 4)
+            {
+                setServoAngle(distributor1, canData[0] ? 180 : 0);
+                setServoAngle(distributor2, canData[1] ? 180 : 0);
+                setServoAngle(distributor3, canData[2] ? 180 : 0);
+            }
+            // If -1 is passed in, close all valves
+            // Valve movement
+            if (valveID == 0)
+            {
+                setServoAngle(valve1, 180);
+            }
+            else if (valveID == 1)
+            {
+                setServoAngle(valve2, 180);
+            }
+            else if (valveID == 2)
+            {
+                setServoAngle(valve3, 180);
+            }
+            else
+            {
+                setServoAngle(valve1, 0);
+                setServoAngle(valve2, 0);
+                setServoAngle(valve3, 0);
+            }
+
+            if (tubeID == 0)
+            {
+                setServoAngle(chemical1, millimetersToMove);
+            }
+            else if (tubeID == 1)
+            {
+                setServoAngle(chemical2, millimetersToMove);
+            }
+            else if (tubeID == 2)
+            {
+                setServoAngle(chemical3, millimetersToMove);
+            }
+
+            // Converts duty cycle input into writeMicroseconds range of the NEO
+            if (commandID == 19)
+            {
+                if (canData.size() == 1)
+                {
+                    lastCtrlCmd = millis();
+                    int value = map_d(canData[0] / 100.0, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
+                    fanMotor.writeMicroseconds(value);
+                    Serial.print("Setting REV duty to ");
+                    Serial.println(value);
+                }
+            }
+
+            // Motor control safety timeout- if no command is received in 2 seconds, shut off the NEO
+            if (millis() - lastCtrlCmd > 2000)
+            {
+                lastCtrlCmd = millis();
+                fanMotor.write(0);
+            }
+
+            else if (commandID == CMD_REV_IDENTIFY)
+            {
+                if (canData.size() == 1)
+                {
+                    COMMS_UART.print("rev_id,");
+                    COMMS_UART.println(canData[0]);
+                }
+            }
+            else if (commandID == CMD_REV_IDLE_MODE)
+            {
+                if (canData.size() == 1)
+                {
+                    if (canData[0] == 0)
+                        COMMS_UART.println("brake,off");
+                    else if (canData[0] == 1)
+                        COMMS_UART.println("brake,on");
+                }
+            }
+        }
+    }
 }
