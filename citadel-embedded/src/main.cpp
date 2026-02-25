@@ -322,7 +322,7 @@ void loop() {
         }
     }
     // Wiggle every 500ms
-    if (millis() - lastWiggle > 500) {
+    if ((millis() - lastWiggle > 500) && (millis() - lastWiggle < 2000)) {
         // Max movement for these servos is 100 degrees due to hardware mounting limit
         lastWiggle = millis();
         distributorPos[0] = distributorReq[0] && !distributorPos[0];
