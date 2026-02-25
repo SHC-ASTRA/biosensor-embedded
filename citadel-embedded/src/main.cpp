@@ -37,6 +37,9 @@ Servo *servoReference[9] = {&valve1,       &valve2,    &valve3,    &distributor1
 
 int currentServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 int targetServoPos[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+int distributorPos[3] = {0, 0, 0};
+int distributorReq[3] = {0, 0, 0};
+
 unsigned long lastServoMoveTime = 0;
 int servoSpeed = 10;  // Uses servo steps to determine speed
 
@@ -286,14 +289,14 @@ void loop() {
                 millimetersToMove = canData[1];
                 // Multiply for 55 divide by 10 for map - TBD
                 millimetersToMove = ((millimetersToMove * 55) / 30);
-                if (millimetersToMove >= 55) {
-                    millimetersToMove = 55;
+                if (millimetersToMove >= 75) {
+                    millimetersToMove = 75;
                 }
             }
             if (canData.size() == 4) {
-                distributor1.write(canData[0] ? 100 : 0);
-                distributor2.write(canData[1] ? 100 : 0);
-                distributor3.write(canData[2] ? 100 : 0);
+                for (int i = 0; i < 3; i++) {
+                    distributorReq[i] = canData[i];
+                }
             }
             // If -1 is passed in, close all valves
             // Valve movement
@@ -317,5 +320,18 @@ void loop() {
                 chemical3.write(millimetersToMove);
             }
         }
+    }
+    // Wiggle every 500ms
+    if (millis() - lastWiggle > 500) {
+        // Max movement for these servos is 100 degrees due to hardware mounting limit
+        lastWiggle = millis();
+        distributorPos[0] = distributorReq[0] && !distributorPos[0];
+        distributor1.write(distributorPos[0] ? 100 : 0);
+        distributorPos[1] = distributorReq[1] && !distributorPos[1];
+        distributor2.write(distributorPos[2] ? 100 : 0);
+        distributorPos[2] = distributorReq[2] && !distributorPos[2];
+        distributor3.write(distributorPos[2] ? 100 : 0);
+
+       
     }
 }
