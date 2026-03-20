@@ -266,7 +266,7 @@ void loop()
         distributor0.write(distributorPos[0] ? 100 : 0);
 
         distributorPos[1] = distributorReq[1] && !distributorPos[1];
-        distributor1.write(distributorPos[2] ? 100 : 0);
+        distributor1.write(distributorPos[1] ? 100 : 0);
 
         distributorPos[2] = distributorReq[2] && !distributorPos[2];
         distributor2.write(distributorPos[2] ? 100 : 0);
