@@ -236,7 +236,7 @@ void loop()
             }
             // If -1 is passed in, close all valves
             // Valve movement
-            if(valveID >=0 && valveID <= 3){
+            if(valveID >=0 && valveID <= 2){
                 valves[valveID]->write(180);
             }
             // If the valve IDs are not valid or -1 is passed in, loop through and close all valves
@@ -247,7 +247,7 @@ void loop()
                 }
             }
 
-            if(chemicalID >=0 && valveID <=3){
+            if(chemicalID >=0 && chemicalID <= 2){
                 chemicals[chemicalID]->write(millimetersToMove);
             }
             
