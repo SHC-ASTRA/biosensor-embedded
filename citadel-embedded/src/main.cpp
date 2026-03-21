@@ -243,7 +243,7 @@ void loop()
             else
             {
                 for(int i=0; i <3; i++){
-                    valves[i]->write(180);
+                    valves[i]->write(0);
                 }
             }
 
