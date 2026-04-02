@@ -1,0 +1,2 @@
+cd "/home/ozy/projects/biosensor-embedded/au_fpga_timer/cores"
+create_project managed_ip_project "/home/ozy/projects/biosensor-embedded/au_fpga_timer/cores/managed_ip_project" -part xc7a35tftg256-1 -ip

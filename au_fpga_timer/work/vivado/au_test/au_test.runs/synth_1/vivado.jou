@@ -1,0 +1,24 @@
+#-----------------------------------------------------------
+# Vivado v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Tue Mar 31 15:14:58 2026
+# Process ID         : 13325
+# Current directory  : /home/ozy/alchitry/au_test/work/vivado/au_test/au_test.runs/synth_1
+# Command line       : vivado -log au_top_0.vds -product Vivado -mode batch -messageDb vivado.pb -notrace -source au_top_0.tcl
+# Log file           : /home/ozy/alchitry/au_test/work/vivado/au_test/au_test.runs/synth_1/au_top_0.vds
+# Journal file       : /home/ozy/alchitry/au_test/work/vivado/au_test/au_test.runs/synth_1/vivado.jou
+# Running On         : laptop
+# Platform           : Ubuntu
+# Operating System   : Ubuntu 24.04.4 LTS
+# Processor Detail   : AMD Ryzen 7 7730U with Radeon Graphics
+# CPU Frequency      : 4448.040 MHz
+# CPU Physical cores : 8
+# CPU Logical cores  : 16
+# Host memory        : 16080 MB
+# Swap memory        : 4294 MB
+# Total Virtual      : 20375 MB
+# Available Virtual  : 13329 MB
+#-----------------------------------------------------------
+source au_top_0.tcl -notrace
