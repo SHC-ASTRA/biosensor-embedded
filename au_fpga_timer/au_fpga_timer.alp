@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="au_fpga_timer" board="Alchitry Au" language="Verilog" version="3">
+  <files>
+    <src top="true">au_top.v</src>
+    <component>reset_conditioner.luc</component>
+    <constraint lib="true">au.xdc</constraint>
+    <constraint lib="true">alchitry.acf</constraint>
+    <core name="clk_wiz_0">
+      <src>clk_wiz_0.xci</src>
+      <stub>clk_wiz_0_stub.v</stub>
+    </core>
+  </files>
+</project>
