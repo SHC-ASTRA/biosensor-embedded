@@ -6,7 +6,11 @@
 		{
 			"name": "citadel-embedded",
 			"path": "citadel-embedded"
-		}
+		},
+		{
+			"name": "libs-embedded",
+			"path": "libs-embedded"
+		},
 	],
 	"settings": {
 		"files.associations": {
