@@ -15,6 +15,7 @@
 
 #include "AstraMisc.h"
 #include "AstraVicCAN.h"
+#include <unilib/can_defs.hpp>
 
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
@@ -23,37 +24,60 @@
 
 #define COMMS_UART Serial // To/from USB for debugging
 
-using std::chrono::microseconds, std::chrono::steady_clock, std::chrono::time_point;
+using std::chrono::microseconds;
+using std::chrono::steady_clock;
+using std::chrono::time_point;
 using std::this_thread::sleep_until;
 
 bool ledState = false;
 
-std::vector<uint64_t> ctrlValues = {};
+std::vector<double> ctrlValues = {};
 
 const microseconds us_5 = microseconds(5);
 time_point<steady_clock, steady_clock::duration> delay_1, delay_2;
 
+#define CCDPixelCount 3694
+
 // CCD Control
-TwoWire ShiftGate;
-TwoWire ClearIntegrator;
-TwoWire CCDOut;
+#define ShiftGate 30
+#define ClearIntegrator 23
+#define CCDOut 20
 // TwoWire MasterClock;
 
-void CCD(double* pixels[]);
+void CCD(void* _);
+
+static bool RunCCD;
+
+static double pixels[CCDPixelCount] = {};
 
 void setup()
 {
     Serial.begin(SERIAL_BAUD);
     
-    ShiftGate = TwoWire(30);
-    ClearIntegrator = TwoWire(23);
-    CCDOut = TwoWire(25);
+    pinMode(ShiftGate, OUTPUT);
+    pinMode(ClearIntegrator, OUTPUT);
+    pinMode(CCDOut, OUTPUT);
     // MasterClock = TwoWire(24);
 
     if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
         Serial.println("CAN bus started!");
     else
         Serial.println("CAN bus failed!");
+
+    xTaskCreatePinnedToCore (
+        CCD,     // Function to implement the task
+        "CCDReader",   // Name of the task
+        // https://dl.espressif.com/github_assets/espressif/xtensa-isa-doc/releases/download/latest/Xtensa.pdf
+        // BSA : 16, Page 6
+        // Frame return : 4
+        // 64-bit stack push buffer : 8
+        // 2x32-bit stack push buffer : 8
+            16 + 4 + 8 + 8,      // Stack size in bytes
+        malloc(CCDPixelCount * __SIZEOF_DOUBLE__),      // Task input parameter
+        0,         // Priority of the task
+        NULL,      // Task handle.
+        0          // Core where the task should run
+    );
 }
 
 void loop()
@@ -113,6 +137,7 @@ void loop()
 
         // Process CAN commands
 
+
         switch (commandID)
         {
             case CMD_PING:
@@ -125,8 +150,8 @@ void loop()
             {
                 // The controller must send a unique ulong each time it intends
                 // to fire. Otherwise, we skip the command   
-                const uint64_t ctrl = static_cast<uint64_t>(canData[0]);
-                for(const uint64_t &pastValues : ctrlValues)
+                const double ctrl = canData[0];
+                for(const double &pastValues : ctrlValues)
                 {
                     if(ctrl == pastValues)
                     {
@@ -144,13 +169,10 @@ void loop()
                 // Read data on the CCD:
                 // Only 3648 of the 3694 pixels are useful (as per datasheet)
                 // Allocating it here so that the thread doesn't have to return it
-                static double pixels[3694] = {};
                 
-                // Open a thread (this is very strictly timed)
-                std::thread t(CCD, *pixels);
-                // Run this thread in the background
-                t.detach();
-
+                // Triggers the CCD thread
+                RunCCD = true;
+                
                 break;
             }
             default:
@@ -159,69 +181,81 @@ void loop()
     }
 }
 
-void CCD(double* pixels[])
+void CCD(void* _)
 {
-    // Maximum clk rate of the ESP32 DOIT Devkit V1 is 240MHz -> 4.1667ns/instruction
-    // The XTensa processor architecture has a 5 (or 7) stage pipeline
-    // Therefore each instruction has an entry to completion delay of 20.8 to 29.1ns
+    // Threads *have* to receive void*s. This just casts the interperetation to double* 
+    double* pixels = static_cast<double*>(_);
 
     // Store this obj / ref in a register object
-    // asm should look something like
-    // rn <- us_5                          | 
-    // push rn2, call constructor, pop rn2 | one clock cycle between these
-    // rn2 <- rn2 + rn                       | holds up the pipeline (sad!) 
-    // delay_1 <- rn2                          |
-    // delay_2 <- rn2 + rn                     | one clock cycle between these
     register time_point<steady_clock, steady_clock::duration> delay_t;
 
-    delay_t = steady_clock::now() + us_5;
-    delay_1 = delay_t;
-    delay_2 = delay_t + us_5;
-
-    // Open the electronic shutter
-    ShiftGate.write(1);
-    ClearIntegrator.write(0);
-
-    // Wait till the shift register propogates
-    sleep_until(delay_1);
-
-    ShiftGate.write(0);
-
-    // Wait again
-    sleep_until(delay_2);
-
-    // Close the electronic shutter
-    ShiftGate.write(1);
-    ClearIntegrator.write(1);
-
-    // Read the data collected
     // Ensure count is stored as a register
     register ushort count = 0;
-    for(; count < 3694; count++)
+
+    while(true)
     {
+        if(!RunCCD)
+            sleep(1);
+            continue;
+
+        // Maximum clk rate of the ESP32 DOIT Devkit V1 is 240MHz -> 4.1667ns/instruction
+        // The XTensa processor architecture has a 5 (or 7) stage pipeline
+        // Therefore each instruction has an entry to completion delay of 20.8 to 29.1ns
+
+        // asm should look something like
+        // rn <- us_5                          | 
+        // push rn2, call constructor, pop rn2 | one clock cycle between these
+        // rn2 <- rn2 + rn                       | holds up the pipeline (sad!) 
+        // delay_1 <- rn2                          |
+        // delay_2 <- rn2 + rn                     | one clock cycle between these
         delay_t = steady_clock::now() + us_5;
         delay_1 = delay_t;
         delay_2 = delay_t + us_5;
 
-        // Sleep first because on first iter we just closed 
-        // the shutter - has to propogate.
+        // Open the electronic shutter
+        digitalWrite(ShiftGate, 1);
+        digitalWrite(ClearIntegrator, 0);
+
+        // Wait till the shift register propogates
         sleep_until(delay_1);
 
-        // Read the value from the ADC converter on the CCDOut pin,
-        // write it to the corresponding location in the pixels array. 
-        *pixels[count] = CCDOut.read();
-        ShiftGate.write(0);
+        digitalWrite(ShiftGate, 0);
 
-        // Wait for the shift gate to propogate closed
+        // Wait again
         sleep_until(delay_2);
 
-        // Open the shift gate, then wait for the ADC line to propagate
-        // (next loop iteration)
-        ShiftGate.write(1);
-    }
+        // Close the electronic shutter
+        digitalWrite(ShiftGate, 1);
+        digitalWrite(ClearIntegrator, 1);
 
-    // Return the data collected
-    count = 0;
-    for(; count < 3694; count++)
-        vicCAN.respond(*pixels[count]);
+        // Read the data collected
+        for(; count < CCDPixelCount; count++)
+        {
+            delay_t = steady_clock::now() + us_5;
+            delay_1 = delay_t;
+            delay_2 = delay_t + us_5;
+
+            // Sleep first because on first iter we just closed 
+            // the shutter - has to propogate.
+            sleep_until(delay_1);
+
+            // Read the value from the ADC converter on the CCDOut pin,
+            // write it to the corresponding location in the pixels array. 
+            pixels[count] = digitalRead(CCDOut);
+            digitalWrite(ShiftGate, 0);
+
+            // Wait for the shift gate to propogate closed
+            sleep_until(delay_2);
+
+            // Open the shift gate, then wait for the ADC line to propagate
+            // (next loop iteration)
+            digitalWrite(ShiftGate, 1);
+        }
+
+        // Return the data collected
+        count = 0;
+        for(; count < CCDPixelCount; count++)
+            vicCAN.respond(pixels[count]);
+        return;
+    }
 }
