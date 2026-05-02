@@ -7,6 +7,8 @@
  */
 #include <Arduino.h>
 #include <ESP32Servo.h>
+#include <Adafruit_PWMServoDriver.h>
+#include <Wire.h>
 
 #include <cmath>
 #include <typeinfo>
@@ -16,28 +18,46 @@
 #include "AstraREVCAN.h"
 #include "AstraVicCAN.h"
 
+// Uses default address of 0x40 according to Adafruit documentation
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
-#define CAN_TX 16
-#define CAN_RX 17
 
-#define REV_PWM_MIN 1000 // us  -1.0 duty
-#define REV_PWM_MAX 2000 // us  1.0 duty
+#define CAN_TX 12
+#define CAN_RX 13
 
-#define SPARK_PWM 4
+// Manually define the I2C SDA and SLC pins for communication with the PWM linear actuator driver
+#define I2C_SDA 37
+#define I2C_SCL 36
+
+#define FAN_PWM_MIN 1000 // us  -1.0 duty
+#define FAN_PWM_MAX 2000 // us  1.0 duty
+
+#define FAN_PWM 9
 
 #define COMMS_UART Serial // To/from USB for debugging
+#define PWM_FREQUENCY 50
+
+struct linearActuators
+{
+    int chem_increase;
+    int chem_decrease;
+};
+linearActuators chemicalActuators[3] = {
+    {10, 11},
+    {9, 8},
+    {7, 6}};
 
 bool ledState = false;
 
 // Defined servos (3 for valves, 3 for distributors, 3 for chemicals)
-Servo valve0, valve1, valve2, distributor0, distributor1, distributor2, chemical0, chemical1, chemical2;
+Servo valve0, valve1, valve2, distributor0, distributor1, distributor2;
 
 // Track the current distributor positions and the requested distributor positions
 int distributorPos[3] = {0, 0, 0};
 int distributorReq[3] = {0, 0, 0};
-Servo* valves[3] = {&valve0, &valve1,&valve2};
-Servo* chemicals[3] = {&chemical0, &chemical1,&chemical2};
+Servo *valves[3] = {&valve0, &valve1, &valve2};
 
 long lastWiggle = 0; // For Distributor servos- count last time moved
 
@@ -59,22 +79,22 @@ void setup()
     // Actual pins From bottom facing the USB C port- 25,13,27,18,22
     // Top Left: 14,26,19,23 (last 2 on the top are not used)
     Serial.begin(SERIAL_BAUD);
+    pwm.begin();
+    pwm.setOscillatorFrequency(27000000); // Internal oscillator frequency
+    pwm.setPWMFreq(PWM_FREQUENCY);        // External PWM frequency
+    Wire.begin(I2C_SDA, I2C_SCL);         // Use the defined SDA and SCL pins
+
     // Valves are on top of the unit
-    valve0.attach(13);
-    valve1.attach(14);
-    valve2.attach(18);
+    valve0.attach(1);
+    valve1.attach(2);
+    valve2.attach(3);
 
     // Distributors are on each of the pieces that hang down
-    distributor0.attach(19);
-    distributor1.attach(22);
-    distributor2.attach(23);
+    distributor0.attach(4);
+    distributor1.attach(5);
+    distributor2.attach(6);
 
-    // Chemical servos are in the back of the unit (the larger servos)
-    chemical0.attach(25);
-    chemical1.attach(26);
-    chemical2.attach(27);
-
-    fanMotor.attach(SPARK_PWM, REV_PWM_MIN, REV_PWM_MAX);
+    fanMotor.attach(FAN_PWM, FAN_PWM_MIN, FAN_PWM_MAX);
 
     // Set all valve, distributor, and chemical servos to their 0 positions
     valve0.write(0);
@@ -85,11 +105,7 @@ void setup()
     distributor1.write(0);
     distributor2.write(0);
 
-    chemical0.write(0);
-    chemical1.write(0);
-    chemical2.write(0);
-
-    fanMotor.writeMicroseconds((REV_PWM_MIN + REV_PWM_MAX) / 2);
+    fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
 
     if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
         Serial.println("CAN bus started!");
@@ -104,7 +120,7 @@ void loop()
     if (millis() - lastCtrlCmd > 1000)
     {
         lastCtrlCmd = millis();
-        fanMotor.writeMicroseconds((REV_PWM_MIN + REV_PWM_MAX) / 2);
+        fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
         Serial.println("CITADEL Fan Motor - Safety Timeout.");
     }
 
@@ -184,30 +200,31 @@ void loop()
         }
 
         else if (commandID == CMD_REV_SET_DUTY)
-        { // Converts duty cycle input into writeMicroseconds range of the NEO
+        { // Converts duty cycle input into writeMicroseconds range of the FAN
             if (canData.size() == 1)
             {
                 lastCtrlCmd = millis();
                 float percent = canData[0] / 100.0;
                 // Limit to 50% duty cycle per Kade's request
-                if (percent < -0.5)
-                {
-                    percent = -0.5;
-                }
-                else if (percent > 0.5)
-                {
-                    percent = 0.5;
-                }
-                int value = map_d(percent, -1.0, 1.0, REV_PWM_MIN, REV_PWM_MAX);
+                // TODO: Determine if Fan speed limiting is needed for new hardware
+                // if (percent < -0.5)
+                // {
+                //     percent = -0.5;
+                // }
+                // else if (percent > 0.5)
+                // {
+                //     percent = 0.5;
+                // }
+                int value = map_d(percent, -1.0, 1.0, FAN_PWM_MIN, FAN_PWM_MAX);
                 fanMotor.writeMicroseconds(value);
-                Serial.print("Setting REV duty to ");
+                Serial.print("Setting FAN duty to ");
                 Serial.println(value);
             }
         }
         else if (commandID == CMD_REV_STOP)
         {
             lastCtrlCmd = millis();
-            fanMotor.writeMicroseconds((REV_PWM_MIN + REV_PWM_MAX) / 2);
+            fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
         }
 
         if (commandID == 40)
@@ -236,24 +253,23 @@ void loop()
             }
             // If -1 is passed in, close all valves
             // Valve movement
-            if(valveID >=0 && valveID <= 2){
+            if (valveID >= 0 && valveID <= 2)
+            {
                 valves[valveID]->write(180);
             }
             // If the valve IDs are not valid or -1 is passed in, loop through and close all valves
             else
             {
-                for(int i=0; i <3; i++){
+                for (int i = 0; i < 3; i++)
+                {
                     valves[i]->write(0);
                 }
             }
 
-            if(chemicalID >=0 && chemicalID <= 2){
-                chemicals[chemicalID]->write(millimetersToMove);
+            if (chemicalID >= 0 && chemicalID <= 2)
+            {
+                // TODO: Implement linear actuator motion
             }
-            
-
-
-            
         }
     }
     // Wiggle every 500ms
