@@ -199,34 +199,6 @@ void loop()
             Serial.println("Received ping over CAN");
         }
 
-        else if (commandID == CMD_REV_SET_DUTY)
-        { // Converts duty cycle input into writeMicroseconds range of the FAN
-            if (canData.size() == 1)
-            {
-                lastCtrlCmd = millis();
-                float percent = canData[0] / 100.0;
-                // Limit to 50% duty cycle per Kade's request
-                // TODO: Determine if Fan speed limiting is needed for new hardware
-                // if (percent < -0.5)
-                // {
-                //     percent = -0.5;
-                // }
-                // else if (percent > 0.5)
-                // {
-                //     percent = 0.5;
-                // }
-                int value = map_d(percent, -1.0, 1.0, FAN_PWM_MIN, FAN_PWM_MAX);
-                fanMotor.writeMicroseconds(value);
-                Serial.print("Setting FAN duty to ");
-                Serial.println(value);
-            }
-        }
-        else if (commandID == CMD_REV_STOP)
-        {
-            lastCtrlCmd = millis();
-            fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
-        }
-
         if (commandID == 40)
         {
             if (canData.size() == 1)
@@ -265,11 +237,10 @@ void loop()
                     valves[i]->write(0);
                 }
             }
+        }
 
-            if (chemicalID >= 0 && chemicalID <= 2)
-            {
-                // TODO: Implement linear actuator motion
-            }
+        if (commandID == 24)
+        {
         }
     }
     // Wiggle every 500ms
