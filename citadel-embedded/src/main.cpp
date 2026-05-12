@@ -38,13 +38,13 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define FAN_PWM 9
 
 // Other servos PWM pins (connected through the multiplexer)
-#define VALVE_0 1
-#define VALVE_1 2
-#define VALVE_2 3
+#define VALVE_0 0
+#define VALVE_1 1
+#define VALVE_2 2
 
-#define DISTRIBUTOR_0 4
-#define DISTRIBUTOR_1 5
-#define DISTRIBUTOR_2 6
+#define DISTRIBUTOR_0 3
+#define DISTRIBUTOR_1 4
+#define DISTRIBUTOR_2 5
 
 // Typical PWM servo movement
 #define SERVOMOVEMIN 150
