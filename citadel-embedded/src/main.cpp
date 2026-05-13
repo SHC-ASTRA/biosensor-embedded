@@ -19,7 +19,7 @@
 #include "AstraVicCAN.h"
 
 // Uses default address of 0x40 according to Adafruit documentation
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
@@ -47,8 +47,8 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define DISTRIBUTOR_2 5
 
 // Typical PWM servo movement
-#define SERVOMOVEMIN 150
-#define SERVOMOVEMAX 600
+#define SERVOMOVEMIN 1000
+#define SERVOMOVEMAX 2000
 
 #define COMMS_UART Serial // To/from USB for debugging
 #define PWM_FREQUENCY 50
@@ -65,13 +65,12 @@ linearActuators chemicalActuators[3] = {
     {9, 8},
     {7, 6}};
 
-int chemicalMove;
+double chemicalMove = 0.0;
 
 // Value of movement to ignore
 double chemicalDeadzone = 0.05;
 // Constraining the speed values for Chemical linear actuators
-uint16_t chemActuatorsSpeed = constrain(chemActuatorsSpeed, -1.0, 1.0);
-
+uint16_t chemActuatorsSpeed = 0;
 // Create valve and distributor servo arrays with Pin ID
 uint16_t distributorServos[3] = {DISTRIBUTOR_0, DISTRIBUTOR_1, DISTRIBUTOR_2};
 uint16_t valveServos[3] = {VALVE_0, VALVE_1, VALVE_2};
@@ -99,18 +98,19 @@ Servo fanMotor;
 void writeServo(uint16_t pin, int angle)
 {
     servoAngle = constrain(angle, 0, 180);
-    pwmPulse = map(angle, 0, 180, SERVOMOVEMIN, SERVOMOVEMAX);
-    pwm.setPWM(pin, 0, angle);
+    pwmPulse = map(servoAngle, 0, 180, SERVOMOVEMIN, SERVOMOVEMAX);
+    pwm.writeMicroseconds(pin, pwmPulse);
 }
 
 void setup()
 {
 
     Serial.begin(SERIAL_BAUD);
+    Wire.begin(I2C_SDA, I2C_SCL);         // Use the defined SDA and SCL pins
+    Wire.setClock(400000);
     pwm.begin();
     pwm.setOscillatorFrequency(27000000); // Internal oscillator frequency
     pwm.setPWMFreq(PWM_FREQUENCY);        // External PWM frequency
-    Wire.begin(I2C_SDA, I2C_SCL);         // Use the defined SDA and SCL pins
 
     // Loop through all of the servos and close them
     for (int i = 0; i <= 2; i++)
@@ -139,7 +139,6 @@ void setup()
 
 void loop()
 {
-
     // Motor control safety timeout- if no command is received in 1 second, shut off the NEO
     if (millis() - lastCtrlCmd > 1000)
     {
@@ -255,17 +254,21 @@ void loop()
 
         if (commandID == 24)
         {
-            chemicalID = canData[0];
+            chemicalID = (int)canData[0];
             chemicalMove = canData[1];
-            chemActuatorsSpeed = (uint16_t)(abs(chemicalMove) * 4095); // Map -1,0,1 values into scale that the actuator can understand
+
             if ((chemicalID >= 0) && (chemicalID <= 2))
             { // Ensure that chemical value is between
-                if (chemActuatorsSpeed > 0)
+
+                chemActuatorsSpeed = (uint16_t)(fabs(chemicalMove) * 4095);
+                chemActuatorsSpeed = constrain(chemActuatorsSpeed, 0, 4095);
+
+                if (chemicalMove > 0)
                 { // Extend
                     pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, chemActuatorsSpeed);
                     pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
                 }
-                if (chemActuatorsSpeed == 0)
+                else if (chemicalMove == 0)
                 { // Do not move linear actuator
                     pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
                     pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
