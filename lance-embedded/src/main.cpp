@@ -105,8 +105,9 @@ void setup() {
     digitalWrite(PIN_LINAC2_RIN, LOW);
 
     // Laser
-    pinMode(PIN_LASER_NMOS, OUTPUT);
-    digitalWrite(PIN_LASER_NMOS, LOW);
+    // TODO: fix the board so this is not on the UART0 TX pin lol
+    // pinMode(PIN_LASER_NMOS, OUTPUT);
+    // digitalWrite(PIN_LASER_NMOS, LOW);
 
 
     //------------------//
@@ -115,7 +116,10 @@ void setup() {
 
     Serial.begin(SERIAL_BAUD);
 
-    ESP32Can.begin(TWAI_SPEED_1000KBPS, PIN_CAN_TX, PIN_CAN_RX);
+    if (ESP32Can.begin(TWAI_SPEED_1000KBPS, PIN_CAN_TX, PIN_CAN_RX))
+        Serial.println("CAN bus started!");
+    else
+        Serial.println("CAN bus failed!");
 
 
     //-----------//
@@ -147,6 +151,8 @@ void setup() {
     ledBlink.interval = 1000;
     voltRead.interval = 1000;
     shtRead.interval = 2000;
+
+    Serial.println("LANCE setup complete");
 }
 
 
