@@ -1,50 +1,74 @@
 /**
- * @file Template_ArduinoIDE.cpp
- * @author your name (you@domain.com)
- * @brief description
+ * @file main.cpp
+ * @brief Controls LANCE's linear actuators, stepper motors, SparkMax motors, and laser
  *
  */
+
 
 //------------//
 //  Includes  //
 //------------//
 
-#include <Arduino.h>  // Not required in Arduino IDE, but needed for PlatformIO projects
-#include <vector>
+#include <Adafruit_SHT31.h>
+#include <Arduino.h>
+#include <DRV8825.h>
 #include <ESP32Servo.h>
+#include <Wire.h>
+
+#include "AstraMisc.h"
+#include "AstraVicCAN.h"
+#include "LancePins.h"
+
 
 //------------//
 //  Settings  //
 //------------//
 
-// Comment out to disable LED blinking
 #define BLINK
 
-#define SERIAL_BAUD 115200
+#define STEPPER_STEPS_PER_REV 200
+#define STEPPER_RPM 60
 
-#define SERVO_PIN 23
 
 //---------------------//
 //  Component classes  //
 //---------------------//
 
-Servo servo;
+Servo drillMotor;
+Servo valveServo;
+
+DRV8825 stepper1(STEPPER_STEPS_PER_REV, PIN_STEPPER1_DIR, PIN_STEPPER1_STEP);
+DRV8825 stepper2(STEPPER_STEPS_PER_REV, PIN_STEPPER2_DIR, PIN_STEPPER2_STEP);
+
+Adafruit_SHT31 sht30 = Adafruit_SHT31();
+bool shtAvailable = false;
 
 
 //----------//
 //  Timing  //
 //----------//
 
-uint32_t lastBlink = 0;
+Timer ledBlink;
+Timer voltRead;
+Timer shtRead;
+
 bool ledState = false;
+
+
+//----------//
+//  State   //
+//----------//
+
+bool stepperRunning[2] = {false, false};
+float stepperDegrees[2] = {0, 0};
 
 
 //--------------//
 //  Prototypes  //
 //--------------//
 
-void parseInput(const String input, std::vector<String>& args);
-double map_d(double x, double in_min, double in_max, double out_min, double out_max);
+void setLinac(uint8_t linacId, float duty);
+void allStop();
 
 
 //------------------------------------------------------------------------------------------------//
@@ -69,12 +93,20 @@ void setup() {
     //--------//
 
     pinMode(LED_BUILTIN, OUTPUT);
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(1000);
-    digitalWrite(LED_BUILTIN, LOW);
 
-    pinMode(SERVO_PIN, OUTPUT);
-    servo.attach(SERVO_PIN, 1000, 2000); // Attach servo to pin with min and max pulse widths (in microseconds)
+    // Linear Actuators
+    pinMode(PIN_LINAC1_FIN, OUTPUT);
+    pinMode(PIN_LINAC1_RIN, OUTPUT);
+    pinMode(PIN_LINAC2_FIN, OUTPUT);
+    pinMode(PIN_LINAC2_RIN, OUTPUT);
+    digitalWrite(PIN_LINAC1_FIN, LOW);
+    digitalWrite(PIN_LINAC1_RIN, LOW);
+    digitalWrite(PIN_LINAC2_FIN, LOW);
+    digitalWrite(PIN_LINAC2_RIN, LOW);
+
+    // Laser
+    pinMode(PIN_LASER_NMOS, OUTPUT);
+    digitalWrite(PIN_LASER_NMOS, LOW);
 
 
     //------------------//
@@ -83,15 +115,38 @@ void setup() {
 
     Serial.begin(SERIAL_BAUD);
 
+    ESP32Can.begin(TWAI_SPEED_1000KBPS, PIN_CAN_TX, PIN_CAN_RX);
+
 
     //-----------//
     //  Sensors  //
     //-----------//
 
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    if (sht30.begin(0x44)) {
+        shtAvailable = true;
+        Serial.println("SHT30 found");
+    } else {
+        Serial.println("SHT30 not found");
+    }
+
 
     //--------------------//
     //  Misc. Components  //
     //--------------------//
+
+    drillMotor.attach(PIN_DRILL_PWM, 1000, 2000);
+    valveServo.attach(PIN_VALVE_PWM, 1000, 2000);
+    drillMotor.write(90);  // Neutral
+    valveServo.write(0);   // Closed
+
+    stepper1.begin(STEPPER_RPM);
+    stepper2.begin(STEPPER_RPM);
+
+    // Timers
+    ledBlink.interval = 1000;
+    voltRead.interval = 1000;
+    shtRead.interval = 2000;
 }
 
 
@@ -115,22 +170,134 @@ void loop() {
     //----------//
     //  Timers  //
     //----------//
+
 #ifdef BLINK
-    if (millis() - lastBlink > 1000) {
-        lastBlink = millis();
+    if (millis() - ledBlink.lastMillis >= ledBlink.interval) {
+        ledBlink.lastMillis = millis();
         ledState = !ledState;
         digitalWrite(LED_BUILTIN, ledState);
     }
 #endif
 
+    if (millis() - voltRead.lastMillis >= voltRead.interval) {
+        voltRead.lastMillis = millis();
+        float vBatt = convertADC(analogRead(PIN_ADC_VBATT), 10, 2.21);
+        float v12 = convertADC(analogRead(PIN_ADC_12V), 10, 3.32);
+        float v5 = convertADC(analogRead(PIN_ADC_5V), 10, 10);
+
+        vicCAN.send(CMD_POWER_VOLTAGE, (int16_t)(vBatt * 100), (int16_t)(v12 * 100), (int16_t)(v5 * 100));
+    }
+
+    if (shtAvailable && millis() - shtRead.lastMillis >= shtRead.interval) {
+        shtRead.lastMillis = millis();
+        float temp = sht30.readTemperature();
+        float hum = sht30.readHumidity();
+        if (!isnan(temp) && !isnan(hum)) {
+            vicCAN.send(CMD_SHT_TEMP_HUM, temp, hum);
+        }
+    }
+
+    // Run pending stepper moves
+    for (int i = 0; i < 2; i++) {
+        if (stepperRunning[i]) {
+            DRV8825& stepper = (i == 0) ? stepper1 : stepper2;
+            stepper.rotate(stepperDegrees[i]);
+            stepperRunning[i] = false;
+            stepperDegrees[i] = 0;
+        }
+    }
+
 
     //-------------//
-    //  CAN Input  //
+    //  CAN input  //
     //-------------//
+    //
+    //
+    //-------------------------------------------------------//
+    //                                                       //
+    //      /////////          //\\          //\\      //    //
+    //    //                  //  \\         // \\     //    //
+    //    //                 //    \\        //  \\    //    //
+    //    //                /////\\\\\       //   \\   //    //
+    //    //               //        \\      //    \\  //    //
+    //    //              //          \\     //     \\ //    //
+    //      /////////    //            \\    //      \\//    //
+    //                                                       //
+    //-------------------------------------------------------//
+
+    if (vicCAN.readCan()) {
+        const uint8_t commandID = vicCAN.getCmdId();
+        static std::vector<double> canData;
+        vicCAN.parseData(canData);
+
+        // General
+
+        if (commandID == CMD_PING) {
+            vicCAN.respond(1);
+        }
+
+        else if (commandID == CMD_TIME) {
+            vicCAN.respond(static_cast<double>(millis()));
+        }
+
+        else if (commandID == CMD_B_LED) {
+            if (canData.size() == 1) {
+                digitalWrite(LED_BUILTIN, static_cast<int>(canData[0]));
+            }
+        }
+
+        else if (commandID == CMD_ALL_STOP) {
+            allStop();
+        }
+
+        else if (commandID == CMD_VERSION_COMMIT || commandID == CMD_VERSION_BUILD) {
+            SEND_VERSION_INFO
+        }
+
+        // Misc Physical Control
+
+        else if (commandID == CMD_LASER_CTRL) {
+            if (canData.size() == 1) {
+                digitalWrite(PIN_LASER_NMOS, static_cast<int>(canData[0]));
+            }
+        }
+
+        else if (commandID == CMD_STEPPER_CTRL) {
+            if (canData.size() == 2) {
+                int stepperId = static_cast<int>(canData[0]);
+                if (stepperId >= 1 && stepperId <= 2) {
+                    stepperRunning[stepperId - 1] = true;
+                    stepperDegrees[stepperId - 1] = static_cast<float>(canData[1]);
+                }
+            }
+        }
+
+        else if (commandID == CMD_LANCE_LINEAR_AC) {
+            // canData[0] = linac ID (1 or 2), canData[1] = duty (-1.0 to 1.0)
+            if (canData.size() == 2) {
+                setLinac(static_cast<uint8_t>(canData[0]), static_cast<float>(canData[1]));
+            }
+        }
+
+        else if (commandID == CMD_REV_SET_DUTY) {
+            // canData[0] = duty (-1.0 to 1.0) for drill SparkMax
+            if (canData.size() == 1) {
+                int angle = static_cast<int>(map_d(canData[0], -1.0, 1.0, 0, 180));
+                drillMotor.write(angle);
+            }
+        }
+
+        else if (commandID == CMD_PWMSERVO_SET_DEG) {
+            // canData[0] = servo angle (0-180) for SCABBARD valve
+            if (canData.size() == 1) {
+                valveServo.write(static_cast<int>(canData[0]));
+            }
+        }
+    }
 
 
     //------------------//
-    //  UART/USB Input  //
+    //  UART/USB input  //
     //------------------//
     //
     //
@@ -147,35 +314,118 @@ void loop() {
     //-------------------------------------------------------//
     if (Serial.available()) {
         String input = Serial.readStringUntil('\n');
+        Serial.println(input);
 
-        input.trim();                   // Remove preceding and trailing whitespace
-        std::vector<String> args = {};  // Initialize empty vector to hold separated arguments
-        parseInput(input, args);   // Separate `input` by commas and place into args vector
-        args[0].toLowerCase();          // Make command case-insensitive
-        String command = args[0];       // To make processing code more readable
+        input.trim();
+        std::vector<String> args = {};
+        parseInput(input, args);
+        args[0].toLowerCase();
+        String command = args[0];
 
         //--------//
         //  Misc  //
         //--------//
-        // Always send 'command' as a PWM signal
-        if (command == "ERR_NOINPUT") {
-            servo.write(90);  // Default position
-            Serial.println("Writing 90*");
-        } else {
-            int angle = int(map_d(command.toFloat(), 0, 1, 0, 180));
-            servo.write(angle);
-            Serial.print("Writing ");
-            Serial.print(angle);
-            Serial.println("*");
+        if (command == "ping") {
+            Serial.println("pong");
+        }
+
+        else if (command == "time") {
+            Serial.println(millis());
+        }
+
+        else if (command == "led") {
+            ledState = !ledState;
+            digitalWrite(LED_BUILTIN, ledState);
+        }
+
+        else if (command == "can_relay_tovic") {
+            vicCAN.relayFromSerial(args);
+        }
+
+        else if (command == "can_relay_mode") {
+            if (args.size() > 1) {
+                if (args[1] == "on")
+                    vicCAN.relayOn();
+                else if (args[1] == "off")
+                    vicCAN.relayOff();
+            }
+        }
+
+        //----------//
+        //  Motors  //
+        //----------//
+
+        // Linear Actuators: "linac,<id>,<duty>"  duty: -1.0 to 1.0
+        else if (command == "linac") {
+            if (args.size() >= 3) {
+                setLinac(args[1].toInt(), args[2].toFloat());
+            }
+        }
+
+        // Drill SparkMax: "drill,<duty>"  duty: -1.0 to 1.0
+        else if (command == "drill") {
+            if (args.size() >= 2) {
+                int angle = static_cast<int>(map_d(args[1].toFloat(), -1.0, 1.0, 0, 180));
+                drillMotor.write(angle);
+            }
+        }
+
+        // Valve servo: "valve,<degrees>"  degrees: 0-180
+        else if (command == "valve") {
+            if (args.size() >= 2) {
+                valveServo.write(args[1].toInt());
+            }
+        }
+
+        // Stepper: "stepper,<id>,<degrees>"
+        else if (command == "stepper") {
+            if (args.size() >= 3) {
+                int stepperId = args[1].toInt();
+                if (stepperId >= 1 && stepperId <= 2) {
+                    stepperRunning[stepperId - 1] = true;
+                    stepperDegrees[stepperId - 1] = args[2].toFloat();
+                }
+            }
+        }
+
+        // Laser: "laser,<0|1>"
+        else if (command == "laser") {
+            if (args.size() >= 2) {
+                digitalWrite(PIN_LASER_NMOS, args[1].toInt());
+            }
         }
 
         //-----------//
         //  Sensors  //
         //-----------//
 
-        //----------//
-        //  Motors  //
-        //----------//
+        // SHT30: "sht"
+        else if (command == "sht") {
+            if (shtAvailable) {
+                float temp = sht30.readTemperature();
+                float hum = sht30.readHumidity();
+                Serial.print("Temp: ");
+                Serial.print(temp);
+                Serial.print(" C, Hum: ");
+                Serial.print(hum);
+                Serial.println(" %");
+            } else {
+                Serial.println("SHT30 not available");
+            }
+        }
+
+        // Emergency stop
+        else if (command == "stop") {
+            allStop();
+            Serial.println("All stopped");
+        }
+
+        else if (command == "shutdown") {
+            allStop();
+            drillMotor.detach();
+            valveServo.detach();
+            Serial.println("Shutdown complete");
+        }
     }
 }
 
@@ -197,41 +447,49 @@ void loop() {
 //                                                    //
 //----------------------------------------------------//
 
-// Pulled from astra-embedded-lib
-void parseInput(const String input, std::vector<String>& args) {
-#define CMD_DELIM ','
+void setLinac(uint8_t linacId, float duty) {
+    uint8_t pinFin, pinRin;
 
-    int lastIndex = -1;
-    int index = -1;
-
-    // Prevent MCU crash from attempting to access args[0]
-    if (input.length() == 0) {
-        args.push_back("ERR_NOINPUT");
+    if (linacId == 1) {
+        pinFin = PIN_LINAC1_FIN;
+        pinRin = PIN_LINAC1_RIN;
+    } else if (linacId == 2) {
+        pinFin = PIN_LINAC2_FIN;
+        pinRin = PIN_LINAC2_RIN;
+    } else {
         return;
     }
 
-    unsigned count = 0;
-    while (count++, count < 200) {
-        lastIndex = index;
-        index = input.indexOf(CMD_DELIM, lastIndex + 1);
-        if (index == -1) {
-            args.push_back(input.substring(lastIndex + 1));
-            break;
-        } else {
-            args.push_back(input.substring(lastIndex + 1, index));
-        }
-    }
+    duty = constrain(duty, -1.0f, 1.0f);
+    uint8_t pwm = static_cast<uint8_t>(abs(duty) * 255);
 
-    // output is via vector<String>& args
+    if (duty > 0) {  // Extend
+        analogWrite(pinFin, pwm);
+        analogWrite(pinRin, 0);
+    } else if (duty < 0) {  // Retract
+        analogWrite(pinFin, 0);
+        analogWrite(pinRin, pwm);
+    } else {  // Stop
+        analogWrite(pinFin, 0);
+        analogWrite(pinRin, 0);
+    }
 }
 
-double map_d(double x, double in_min, double in_max, double out_min, double out_max) {
-    const double run = in_max - in_min;
-    if (run == 0)
-    {
-	    return 0;  // in_min == in_max, error
-    }
-    const double rise = out_max - out_min;
-    const double delta = x - in_min;
-    return (delta * rise) / run + out_min;
+void allStop() {
+    // Stop linear actuators
+    setLinac(1, 0);
+    setLinac(2, 0);
+
+    // Neutral SparkMax / servo
+    drillMotor.write(90);
+    valveServo.write(0);  // Closed
+
+    // Stop steppers
+    stepperRunning[0] = false;
+    stepperRunning[1] = false;
+    stepperDegrees[0] = 0;
+    stepperDegrees[1] = 0;
+
+    // Laser off
+    digitalWrite(PIN_LASER_NMOS, LOW);
 }
