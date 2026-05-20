@@ -5,6 +5,11 @@
  * @brief ASTRA Biosensor Citadel embedded code
  *
  */
+
+//------------//
+//  Includes  //
+//------------//
+
 #include <Arduino.h>
 #include <ESP32Servo.h>
 #include <Adafruit_PWMServoDriver.h>
@@ -17,6 +22,10 @@
 #include "AstraMotors.h"
 #include "AstraREVCAN.h"
 #include "AstraVicCAN.h"
+
+//------------//
+//  Settings  //
+//------------//
 
 // Uses default address of 0x40 according to Adafruit documentation
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
@@ -53,6 +62,10 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 #define COMMS_UART Serial // To/from USB for debugging
 #define PWM_FREQUENCY 50
 
+//---------------------//
+//  Component classes  //
+//---------------------//
+
 // Linear actuator structure to easily allow for extension/retraction of the chemical linear actuators (increase = extend, decrease = retract)
 struct linearActuators
 {
@@ -79,10 +92,13 @@ uint16_t valveServos[3] = {VALVE_0, VALVE_1, VALVE_2};
 int distributorPos[3] = {0, 0, 0};
 int distributorReq[3] = {0, 0, 0};
 
+//----------//
+//  Timing  //
+//----------//
+
 long lastWiggle = 0; // For Distributor servos- count last time moved
 
 unsigned long lastCtrlCmd = 0;
-unsigned long lastMotorStatus = 0;
 int servoAngle;
 int pwmPulse;
 // Variables for CAN commands- since all servos in a group should be writing the same
@@ -94,6 +110,22 @@ bool ledState = false;
 // Control the NEO550 functioning as the fan motor
 Servo fanMotor;
 int fanMotorSpeed;
+//------------------------------------------------------------------------------------------------//
+//  Function definitions
+//------------------------------------------------------------------------------------------------//
+//
+//
+//----------------------------------------------------//
+//                                                    //
+//    //////////    //          //      //////////    //
+//    //            //\\        //    //              //
+//    //            //  \\      //    //              //
+//    //////        //    \\    //    //              //
+//    //            //      \\  //    //              //
+//    //            //        \\//    //              //
+//    //            //          //      //////////    //
+//                                                    //
+//----------------------------------------------------//
 
 // Since there is no function in this library for natively writing servos (0-180), take raw angle and write to pwm value for that pin
 void writeServo(uint16_t pin, int angle)
@@ -103,15 +135,50 @@ void writeServo(uint16_t pin, int angle)
     pwm.writeMicroseconds(pin, pwmPulse);
 }
 
+//------------------------------------------------------------------------------------------------//
+//  Setup
+//------------------------------------------------------------------------------------------------//
+//
+//
+//------------------------------------------------//
+//                                                //
+//      ////////    //////////    //////////      //
+//    //                //        //        //    //
+//    //                //        //        //    //
+//      //////          //        //////////      //
+//            //        //        //              //
+//            //        //        //              //
+//    ////////          //        //              //
+//                                                //
+//------------------------------------------------//
+
 void setup()
 {
+    //--------//
+    //  Pins  //
+    //--------//
+
+    Wire.begin(I2C_SDA, I2C_SCL); // Use the defined SDA and SCL pins
+    fanMotor.attach(FAN_PWM, FAN_PWM_MIN, FAN_PWM_MAX);
+
+    //------------------//
+    //  Communications  //
+    //------------------//
 
     Serial.begin(SERIAL_BAUD);
-    Wire.begin(I2C_SDA, I2C_SCL);         // Use the defined SDA and SCL pins
     Wire.setClock(400000);
     pwm.begin();
     pwm.setOscillatorFrequency(27000000); // Internal oscillator frequency
     pwm.setPWMFreq(PWM_FREQUENCY);        // External PWM frequency
+
+    if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
+        Serial.println("CAN bus started!");
+    else
+        Serial.println("CAN bus failed!");
+
+    //--------------------//
+    //  Misc. Components  //
+    //--------------------//
 
     // Loop through all of the servos and close them
     for (int i = 0; i <= 2; i++)
@@ -128,18 +195,29 @@ void setup()
     pwm.setPWM(chemicalActuators[2].chem_decrease, 0, 0);
     pwm.setPWM(chemicalActuators[2].chem_increase, 0, 0);
 
-    fanMotor.attach(FAN_PWM, FAN_PWM_MIN, FAN_PWM_MAX);
-
     fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
-
-    if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
-        Serial.println("CAN bus started!");
-    else
-        Serial.println("CAN bus failed!");
 }
-
+//------------------------------------------------------------------------------------------------//
+//  Loop
+//------------------------------------------------------------------------------------------------//
+//
+//
+//-------------------------------------------------//
+//                                                 //
+//    /////////      //            //////////      //
+//    //      //     //            //        //    //
+//    //      //     //            //        //    //
+//    ////////       //            //////////      //
+//    //      //     //            //              //
+//    //       //    //            //              //
+//    /////////      //////////    //              //
+//                                                 //
+//-------------------------------------------------//
 void loop()
 {
+    //----------//
+    //  Timers  //
+    //----------//
     // Motor control safety timeout- if no command is received in 1 second, shut off the NEO
     if (millis() - lastCtrlCmd > 1000)
     {
@@ -148,7 +226,9 @@ void loop()
         Serial.println("CITADEL Fan Motor - Safety Timeout.");
     }
 
-    // Serial commands
+    //--------//
+    //  Misc  //
+    //--------//
     if (Serial.available())
     {
         String input = Serial.readStringUntil('\n');
@@ -195,7 +275,9 @@ void loop()
         }
     }
 
-    // CAN
+    //-------------//
+    //  CAN Input  //
+    //-------------//
     if (vicCAN.readCan())
     {
         const uint8_t commandID = vicCAN.getCmdId();
@@ -223,9 +305,15 @@ void loop()
             Serial.println("Received ping over CAN");
         }
 
+        //------------------------------//
+        //  Motors / Linear Actuators   //
+        //------------------------------//
+
         // PWM fan speed function, map fan speed between -100 to 100 - 0 being stopped, negative values being reverse, positive values being forward
-        if(commandID == 19){
-            if(canData.size() == 1){
+        if (commandID == 19)
+        {
+            if (canData.size() == 1)
+            {
                 fanMotorSpeed = canData[0];
                 fanMotorSpeed = (fanMotorSpeed, -100, 100, SERVOMOVEMIN, SERVOMOVEMAX);
                 fanMotor.writeMicroseconds(fanMotorSpeed);
