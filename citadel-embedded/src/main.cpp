@@ -40,6 +40,8 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 #define I2C_SDA 37
 #define I2C_SCL 36
 
+#define TESTBUTTON 14
+
 #define FAN_PWM_MIN 1000 // us  -1.0 duty
 #define FAN_PWM_MAX 2000 // us  1.0 duty
 
@@ -79,6 +81,14 @@ linearActuators chemicalActuators[3] = {
     {7, 6}};
 
 double chemicalMove = 0.0;
+int servoAngle;
+int pwmPulse;
+// Variables for CAN commands- since all servos in a group should be writing the same
+int valveID;
+int chemicalID;
+int distributorID;
+int testButton = 0;
+bool ledState = false;
 
 // Value of movement to ignore
 double chemicalDeadzone = 0.05;
@@ -99,15 +109,8 @@ int distributorReq[3] = {0, 0, 0};
 long lastWiggle = 0; // For Distributor servos- count last time moved
 
 unsigned long lastCtrlCmd = 0;
-int servoAngle;
-int pwmPulse;
-// Variables for CAN commands- since all servos in a group should be writing the same
-int valveID;
-int chemicalID;
-int distributorID;
 
-bool ledState = false;
-// Control the NEO550 functioning as the fan motor
+// Control the PWM fan functioning as the fan motor
 Servo fanMotor;
 int fanMotorSpeed;
 //------------------------------------------------------------------------------------------------//
@@ -160,6 +163,7 @@ void setup()
 
     Wire.begin(I2C_SDA, I2C_SCL); // Use the defined SDA and SCL pins
     fanMotor.attach(FAN_PWM, FAN_PWM_MIN, FAN_PWM_MAX);
+    pinMode(14, INPUT_PULLUP);
 
     //------------------//
     //  Communications  //
@@ -226,9 +230,42 @@ void loop()
         Serial.println("CITADEL Fan Motor - Safety Timeout.");
     }
 
-    //--------//
-    //  Misc  //
-    //--------//
+    // Check if the pullup test resistor is triggered - LOW means that the button has been triggered
+    testButton = digitalRead(TESTBUTTON);
+    if (testButton == LOW)
+    {
+        // Move Distributor servos every 300 ms
+        for (int i = 0; i <= 2; i++)
+        {
+            writeServo(distributorServos[i], 0);
+            delay(300);
+        }
+        // Move valve servos every 300 ms
+        for (int i = 0; i <= 2; i++)
+        {
+            writeServo(valveServos[i], 0);
+            delay(300);
+        }
+
+        // Move chemical linear actuators every half second at half speed to max position - loop through
+        for (int chemicalID = 0; chemicalID <= 2; chemicalID++)
+        {
+            pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 2047);
+            pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
+            delay(500);
+        }
+        // Move chemical linear actuators every half second at half speed to 0 position
+        for (int chemicalID = 0; chemicalID <= 2; chemicalID++)
+        {
+            pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 2047);
+            pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
+            delay(500);
+        }
+    }
+
+    //------------------//
+    //  UART/USB Input  //
+    //------------------//
     if (Serial.available())
     {
         String input = Serial.readStringUntil('\n');
