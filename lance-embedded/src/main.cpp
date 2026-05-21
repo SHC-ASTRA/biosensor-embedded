@@ -16,6 +16,7 @@
 #include <Wire.h>
 
 #include "AstraMisc.h"
+#include "AstraMotors.h"
 #include "AstraVicCAN.h"
 #include "LancePins.h"
 
@@ -29,12 +30,14 @@
 #define STEPPER_STEPS_PER_REV 200
 #define STEPPER_RPM 60
 
+#define DRILL_MOTOR_ID 5
+
 
 //---------------------//
 //  Component classes  //
 //---------------------//
 
-Servo drillMotor;
+AstraMotors drillMotor(DRILL_MOTOR_ID, false, 1);
 Servo valveServo;
 
 DRV8825 stepper1(STEPPER_STEPS_PER_REV, PIN_STEPPER1_DIR, PIN_STEPPER1_STEP);
@@ -51,6 +54,8 @@ bool shtAvailable = false;
 Timer ledBlink;
 Timer voltRead;
 Timer shtRead;
+Timer motorAccel;
+Timer motorFeedback;
 
 bool ledState = false;
 
@@ -69,6 +74,13 @@ float stepperDegrees[2] = {0, 0};
 
 void setLinac(uint8_t linacId, float duty);
 void allStop();
+
+void heartbeatTask(void* pvParameters) {
+    while (true) {
+        CAN_sendHeartbeat(DRILL_MOTOR_ID);
+        delay(10);
+    }
+}
 
 
 //------------------------------------------------------------------------------------------------//
@@ -139,9 +151,7 @@ void setup() {
     //  Misc. Components  //
     //--------------------//
 
-    drillMotor.attach(PIN_DRILL_PWM, 1000, 2000);
     valveServo.attach(PIN_VALVE_PWM, 1000, 2000);
-    drillMotor.write(90);  // Neutral
     valveServo.write(0);   // Closed
 
     stepper1.begin(STEPPER_RPM);
@@ -151,6 +161,22 @@ void setup() {
     ledBlink.interval = 1000;
     voltRead.interval = 1000;
     shtRead.interval = 2000;
+    motorAccel.interval = 50;
+    motorFeedback.interval = 500;
+
+    // Heartbeat task for SparkMAX (must send every 25ms)
+    xTaskCreatePinnedToCore(
+        heartbeatTask,
+        "heartbeat",
+        1000,
+        NULL,
+        0,
+        NULL,
+        0
+    );
+
+    // Configure SparkMAX status frame periods
+    drillMotor.setSlowStatusPeriods();
 
     Serial.println("LANCE setup complete");
 }
@@ -203,6 +229,27 @@ void loop() {
         }
     }
 
+    // Motor acceleration (smooth duty cycle ramping)
+    if (millis() - motorAccel.lastMillis >= motorAccel.interval) {
+        motorAccel.lastMillis = millis();
+        drillMotor.accelerate();
+    }
+
+    // Send motor feedback over VicCAN
+    if (millis() - motorFeedback.lastMillis >= motorFeedback.interval) {
+        motorFeedback.lastMillis = millis();
+        if (millis() - drillMotor.status1.timestamp < 500) {
+            vicCAN.send(CMD_REVMOTOR_FEEDBACK, drillMotor.getID(),
+                        drillMotor.status1.motorTemperature * 10,
+                        drillMotor.status1.busVoltage * 10, drillMotor.status1.outputCurrent * 10);
+        }
+        if (millis() - drillMotor.status1.timestamp < 500 &&
+            millis() - drillMotor.status2.timestamp < 500) {
+            vicCAN.send(CMD_REV_POS_VEL_FEEDBACK, drillMotor.getID(),
+                        drillMotor.status2.sensorPosition, drillMotor.status1.sensorVelocity);
+        }
+    }
+
     // Run pending stepper moves
     for (int i = 0; i < 2; i++) {
         if (stepperRunning[i]) {
@@ -231,7 +278,9 @@ void loop() {
     //                                                       //
     //-------------------------------------------------------//
 
-    if (vicCAN.readCan()) {
+    CanFrame rxFrame;
+    bool isREV;
+    if (vicCAN.readCan(&isREV, &rxFrame)) {
         const uint8_t commandID = vicCAN.getCmdId();
         static std::vector<double> canData;
         vicCAN.parseData(canData);
@@ -288,8 +337,7 @@ void loop() {
         else if (commandID == CMD_REV_SET_DUTY) {
             // canData[0] = duty (-1.0 to 1.0) for drill SparkMax
             if (canData.size() == 1) {
-                int angle = static_cast<int>(map_d(canData[0], -1.0, 1.0, 0, 180));
-                drillMotor.write(angle);
+                drillMotor.setDuty(static_cast<float>(canData[0]));
             }
         }
 
@@ -298,6 +346,14 @@ void loop() {
             if (canData.size() == 1) {
                 valveServo.write(static_cast<int>(canData[0]));
             }
+        }
+    } else if (isREV) {
+        // Parse REV SparkMAX status frames
+        uint8_t deviceId = rxFrame.identifier & 0x3F;
+        uint32_t apiId = (rxFrame.identifier >> 6) & 0x3FF;
+
+        if (deviceId == drillMotor.getID() && (apiId & 0x60) == 0x60) {
+            drillMotor.parseStatus(apiId, rxFrame.data);
         }
     }
 
@@ -371,8 +427,7 @@ void loop() {
         // Drill SparkMax: "drill,<duty>"  duty: -1.0 to 1.0
         else if (command == "drill") {
             if (args.size() >= 2) {
-                int angle = static_cast<int>(map_d(args[1].toFloat(), -1.0, 1.0, 0, 180));
-                drillMotor.write(angle);
+                drillMotor.setDuty(args[1].toFloat());
             }
         }
 
@@ -428,7 +483,6 @@ void loop() {
 
         else if (command == "shutdown") {
             allStop();
-            drillMotor.detach();
             valveServo.detach();
             Serial.println("Shutdown complete");
         }
@@ -486,8 +540,8 @@ void allStop() {
     setLinac(1, 0);
     setLinac(2, 0);
 
-    // Neutral SparkMax / servo
-    drillMotor.write(90);
+    // Stop drill motor via CAN
+    drillMotor.stop();
     valveServo.write(0);  // Closed
 
     // Stop steppers
