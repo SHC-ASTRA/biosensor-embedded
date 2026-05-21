@@ -237,29 +237,32 @@ void loop()
         // Move Distributor servos every 300 ms
         for (int i = 0; i <= 2; i++)
         {
-            writeServo(distributorServos[i], 0);
+            writeServo(distributorServos[i], 100);
             delay(300);
+            writeServo(distributorServos[i], 0);
         }
+        delay(500);
         // Move valve servos every 300 ms
         for (int i = 0; i <= 2; i++)
         {
-            writeServo(valveServos[i], 0);
+            writeServo(valveServos[i], 180);
             delay(300);
+            writeServo(valveServos[i], 0);
         }
-
+        delay(500);
         // Move chemical linear actuators every half second at half speed to max position - loop through
         for (int chemicalID = 0; chemicalID <= 2; chemicalID++)
         {
             pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 2047);
-            pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
             delay(500);
+            pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
         }
         // Move chemical linear actuators every half second at half speed to 0 position
         for (int chemicalID = 0; chemicalID <= 2; chemicalID++)
         {
             pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 2047);
-            pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
             delay(500);
+            pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
         }
     }
 
@@ -352,7 +355,7 @@ void loop()
             if (canData.size() == 1)
             {
                 fanMotorSpeed = canData[0];
-                fanMotorSpeed = (fanMotorSpeed, -100, 100, SERVOMOVEMIN, SERVOMOVEMAX);
+                fanMotorSpeed = map(fanMotorSpeed, -100, 100, SERVOMOVEMIN, SERVOMOVEMAX);
                 fanMotor.writeMicroseconds(fanMotorSpeed);
             }
         }
