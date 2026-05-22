@@ -428,10 +428,10 @@ void setLinac(uint8_t linacId, float duty) {
     duty = constrain(duty, -1.0f, 1.0f);
     uint8_t pwm = static_cast<uint8_t>(abs(duty) * 255);
 
-    if (duty > 0) {  // Extend
+    if (duty < 0) {  // Extend
         analogWrite(pinFin, pwm);
         analogWrite(pinRin, 0);
-    } else if (duty < 0) {  // Retract
+    } else if (duty > 0) {  // Retract
         analogWrite(pinFin, 0);
         analogWrite(pinRin, pwm);
     } else {  // Stop
