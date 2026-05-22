@@ -11,7 +11,6 @@
 
 #include <Adafruit_SHT31.h>
 #include <Arduino.h>
-#include <DRV8825.h>
 #include <ESP32Servo.h>
 #include <Wire.h>
 
@@ -38,10 +37,6 @@
 //---------------------//
 
 AstraMotors drillMotor(DRILL_MOTOR_ID, false, 1);
-Servo valveServo;
-
-DRV8825 stepper1(STEPPER_STEPS_PER_REV, PIN_STEPPER1_DIR, PIN_STEPPER1_STEP);
-DRV8825 stepper2(STEPPER_STEPS_PER_REV, PIN_STEPPER2_DIR, PIN_STEPPER2_STEP);
 
 Adafruit_SHT31 sht30 = Adafruit_SHT31();
 bool shtAvailable = false;
@@ -58,14 +53,6 @@ Timer motorAccel;
 Timer motorFeedback;
 
 bool ledState = false;
-
-
-//----------//
-//  State   //
-//----------//
-
-bool stepperRunning[2] = {false, false};
-float stepperDegrees[2] = {0, 0};
 
 
 //--------------//
@@ -116,11 +103,6 @@ void setup() {
     digitalWrite(PIN_LINAC2_FIN, LOW);
     digitalWrite(PIN_LINAC2_RIN, LOW);
 
-    // Laser
-    // TODO: fix the board so this is not on the UART0 TX pin lol
-    // pinMode(PIN_LASER_NMOS, OUTPUT);
-    // digitalWrite(PIN_LASER_NMOS, LOW);
-
 
     //------------------//
     //  Communications  //
@@ -151,11 +133,6 @@ void setup() {
     //  Misc. Components  //
     //--------------------//
 
-    valveServo.attach(PIN_VALVE_PWM, 1000, 2000);
-    valveServo.write(0);   // Closed
-
-    stepper1.begin(STEPPER_RPM);
-    stepper2.begin(STEPPER_RPM);
 
     // Timers
     ledBlink.interval = 1000;
@@ -165,15 +142,7 @@ void setup() {
     motorFeedback.interval = 500;
 
     // Heartbeat task for SparkMAX (must send every 25ms)
-    xTaskCreatePinnedToCore(
-        heartbeatTask,
-        "heartbeat",
-        1000,
-        NULL,
-        0,
-        NULL,
-        0
-    );
+    xTaskCreatePinnedToCore(heartbeatTask, "heartbeat", 1000, NULL, 0, NULL, 0);
 
     // Configure SparkMAX status frame periods
     drillMotor.setSlowStatusPeriods();
@@ -239,24 +208,12 @@ void loop() {
     if (millis() - motorFeedback.lastMillis >= motorFeedback.interval) {
         motorFeedback.lastMillis = millis();
         if (millis() - drillMotor.status1.timestamp < 500) {
-            vicCAN.send(CMD_REVMOTOR_FEEDBACK, drillMotor.getID(),
-                        drillMotor.status1.motorTemperature * 10,
+            vicCAN.send(CMD_REVMOTOR_FEEDBACK, drillMotor.getID(), drillMotor.status1.motorTemperature * 10,
                         drillMotor.status1.busVoltage * 10, drillMotor.status1.outputCurrent * 10);
         }
-        if (millis() - drillMotor.status1.timestamp < 500 &&
-            millis() - drillMotor.status2.timestamp < 500) {
-            vicCAN.send(CMD_REV_POS_VEL_FEEDBACK, drillMotor.getID(),
-                        drillMotor.status2.sensorPosition, drillMotor.status1.sensorVelocity);
-        }
-    }
-
-    // Run pending stepper moves
-    for (int i = 0; i < 2; i++) {
-        if (stepperRunning[i]) {
-            DRV8825& stepper = (i == 0) ? stepper1 : stepper2;
-            stepper.rotate(stepperDegrees[i]);
-            stepperRunning[i] = false;
-            stepperDegrees[i] = 0;
+        if (millis() - drillMotor.status1.timestamp < 500 && millis() - drillMotor.status2.timestamp < 500) {
+            vicCAN.send(CMD_REV_POS_VEL_FEEDBACK, drillMotor.getID(), drillMotor.status2.sensorPosition,
+                        drillMotor.status1.sensorVelocity);
         }
     }
 
@@ -311,22 +268,6 @@ void loop() {
 
         // Misc Physical Control
 
-        else if (commandID == CMD_LASER_CTRL) {
-            if (canData.size() == 1) {
-                digitalWrite(PIN_LASER_NMOS, static_cast<int>(canData[0]));
-            }
-        }
-
-        else if (commandID == CMD_STEPPER_CTRL) {
-            if (canData.size() == 2) {
-                int stepperId = static_cast<int>(canData[0]);
-                if (stepperId >= 1 && stepperId <= 2) {
-                    stepperRunning[stepperId - 1] = true;
-                    stepperDegrees[stepperId - 1] = static_cast<float>(canData[1]);
-                }
-            }
-        }
-
         else if (commandID == CMD_LANCE_LINEAR_AC) {
             // canData[0] = linac ID (1 or 2), canData[1] = duty (-1.0 to 1.0)
             if (canData.size() == 2) {
@@ -341,12 +282,6 @@ void loop() {
             }
         }
 
-        else if (commandID == CMD_PWMSERVO_SET_DEG) {
-            // canData[0] = servo angle (0-180) for SCABBARD valve
-            if (canData.size() == 1) {
-                valveServo.write(static_cast<int>(canData[0]));
-            }
-        }
     } else if (isREV) {
         // Parse REV SparkMAX status frames
         uint8_t deviceId = rxFrame.identifier & 0x3F;
@@ -431,30 +366,6 @@ void loop() {
             }
         }
 
-        // Valve servo: "valve,<degrees>"  degrees: 0-180
-        else if (command == "valve") {
-            if (args.size() >= 2) {
-                valveServo.write(args[1].toInt());
-            }
-        }
-
-        // Stepper: "stepper,<id>,<degrees>"
-        else if (command == "stepper") {
-            if (args.size() >= 3) {
-                int stepperId = args[1].toInt();
-                if (stepperId >= 1 && stepperId <= 2) {
-                    stepperRunning[stepperId - 1] = true;
-                    stepperDegrees[stepperId - 1] = args[2].toFloat();
-                }
-            }
-        }
-
-        // Laser: "laser,<0|1>"
-        else if (command == "laser") {
-            if (args.size() >= 2) {
-                digitalWrite(PIN_LASER_NMOS, args[1].toInt());
-            }
-        }
 
         //-----------//
         //  Sensors  //
@@ -479,12 +390,6 @@ void loop() {
         else if (command == "stop") {
             allStop();
             Serial.println("All stopped");
-        }
-
-        else if (command == "shutdown") {
-            allStop();
-            valveServo.detach();
-            Serial.println("Shutdown complete");
         }
     }
 }
@@ -542,14 +447,4 @@ void allStop() {
 
     // Stop drill motor via CAN
     drillMotor.stop();
-    valveServo.write(0);  // Closed
-
-    // Stop steppers
-    stepperRunning[0] = false;
-    stepperRunning[1] = false;
-    stepperDegrees[0] = 0;
-    stepperDegrees[1] = 0;
-
-    // Laser off
-    digitalWrite(PIN_LASER_NMOS, LOW);
 }

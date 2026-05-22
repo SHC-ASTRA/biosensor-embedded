@@ -24,8 +24,8 @@
 #define PIN_LINAC2_RIN 6
 
 // Motor/Servo PWM (active low accent: silkscreened as SPARK1/SPARK2)
-#define PIN_DRILL_PWM 16     // SparkMax for drill motor
-#define PIN_VALVE_PWM 15     // Servo for SCABBARD suction valve (not a SparkMax)
+#define PIN_DRILL_PWM 16  // SparkMax for drill motor
+#define PIN_VALVE_PWM 15  // Servo for SCABBARD suction valve (not a SparkMax)
 
 // Stepper Motors (STEP + DIR)
 #define PIN_STEPPER1_STEP 48  // CITADEL vacuum arm
