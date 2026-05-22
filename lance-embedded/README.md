@@ -53,12 +53,8 @@ All commands are comma-delimited.
 | `led` | Toggles built-in LED |
 | `linac,<id>,<duty>` | Control linear actuator (1=drill lift, 2=bio vacuum arm; duty: -1.0=full retract, 0=stop, 1.0=full extend) |
 | `drill,<duty>` | Control drill SparkMax (duty: -1.0 to 1.0) |
-| `valve,<degrees>` | Control SCABBARD valve servo (degrees: 0-180) |
-| `stepper,<id>,<degrees>` | Rotate stepper (id: 1-2, degrees: float) |
-| `laser,<0\|1>` | Laser off/on |
 | `sht` | Read SHT30 temperature and humidity |
-| `stop` | Emergency stop all actuators and laser |
-| `shutdown` | Stop everything and detach servos |
+| `stop` | Emergency stop (stops linear actuators and drill motor) |
 | `can_relay_tovic,...` | Relay a CAN frame (see VicCAN docs) |
 | `can_relay_mode,<on\|off>` | Enable/disable CAN relay mode |
 
@@ -74,17 +70,18 @@ LANCE uses MCU ID 5 (`MCU_LANCE`, formerly `MCU_FAERIE`).
 | 6 | `CMD_ALL_STOP` | Emergency stop |
 | 7, 8 | `CMD_VERSION_*` | Report firmware version |
 | 19 | `CMD_REV_SET_DUTY` | Drill SparkMax duty (1f64: duty -1.0..1.0) |
-| 25 | `CMD_PWMSERVO_SET_DEG` | SCABBARD valve servo position (1f64: angle 0-180) |
-| 27 | `CMD_STEPPER_CTRL` | Stepper rotate (2f32: stepper_id, degrees) |
-| 28 | `CMD_LASER_CTRL` | Laser on/off (1f64: 0 or 1) |
 | 42 | `CMD_LANCE_LINEAR_AC` | Linear actuator (2f32: linac_id, duty -1.0..1.0) |
+
+LANCE also parses incoming REV SparkMAX status frames for the drill motor (ID 5).
 
 ### Periodic Feedback
 
 | Command ID | Name | Interval | Data |
 |------------|------|----------|------|
-| 54 | `CMD_POWER_VOLTAGE` | 1s | 4i16: vbatt\*100, v12\*100, v5\*100, 0 |
+| 53 | `CMD_REVMOTOR_FEEDBACK` | 500ms | 4i16: motor_id, temp\*10, voltage\*10, current\*10 |
+| 54 | `CMD_POWER_VOLTAGE` | 1s | 4i16: vbatt\*100, v12\*100, v5\*100 |
 | 57 | `CMD_SHT_TEMP_HUM` | 2s | 2f32: temperature_C, humidity_% |
+| 58 | `CMD_REV_POS_VEL_FEEDBACK` | 500ms | 2f32: position_rotations, velocity_rpm |
 
 ## Building
 
