@@ -36,8 +36,8 @@
 
           shellHook = ''
             echo "biosensor-embedded dev shell"
-            echo "  pio run -d lance-embedded   - build lance"
-            echo "  pio run -d 'Citadel Code'   - build citadel"
+            echo "  pio run -d lance-embedded    - build lance"
+            echo "  pio run -d citadel-embedded  - build citadel"
           '';
         };
 
