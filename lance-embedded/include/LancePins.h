@@ -18,10 +18,10 @@
 #define PIN_ADC_5V 2
 
 // Linear Actuators (H-bridge: FIN=forward/extend, RIN=reverse/retract)
-#define PIN_LINAC1_FIN 5  // Drill lift (large) - VNH5019
-#define PIN_LINAC1_RIN 4
-#define PIN_LINAC2_FIN 7  // Bio vacuum arm (small) - MPQ6612A
-#define PIN_LINAC2_RIN 6
+#define PIN_LINAC_LARGE_FIN 5  // Drill lift (large) - VNH5019
+#define PIN_LINAC_LARGE_RIN 4
+#define PIN_LINAC_SMALL_FIN 7  // Bio vacuum arm (small) - MPQ6612A
+#define PIN_LINAC_SMALL_RIN 6
 
 // Motor/Servo PWM (active low accent: silkscreened as SPARK1/SPARK2)
 #define PIN_DRILL_PWM 16  // SparkMax for drill motor

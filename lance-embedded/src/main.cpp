@@ -94,14 +94,14 @@ void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
 
     // Linear Actuators
-    pinMode(PIN_LINAC1_FIN, OUTPUT);
-    pinMode(PIN_LINAC1_RIN, OUTPUT);
-    pinMode(PIN_LINAC2_FIN, OUTPUT);
-    pinMode(PIN_LINAC2_RIN, OUTPUT);
-    digitalWrite(PIN_LINAC1_FIN, LOW);
-    digitalWrite(PIN_LINAC1_RIN, LOW);
-    digitalWrite(PIN_LINAC2_FIN, LOW);
-    digitalWrite(PIN_LINAC2_RIN, LOW);
+    pinMode(PIN_LINAC_LARGE_FIN, OUTPUT);
+    pinMode(PIN_LINAC_LARGE_RIN, OUTPUT);
+    pinMode(PIN_LINAC_SMALL_FIN, OUTPUT);
+    pinMode(PIN_LINAC_SMALL_RIN, OUTPUT);
+    digitalWrite(PIN_LINAC_LARGE_FIN, LOW);
+    digitalWrite(PIN_LINAC_LARGE_RIN, LOW);
+    digitalWrite(PIN_LINAC_SMALL_FIN, LOW);
+    digitalWrite(PIN_LINAC_SMALL_RIN, LOW);
 
 
     //------------------//
@@ -416,11 +416,11 @@ void setLinac(uint8_t linacId, float duty) {
     uint8_t pinFin, pinRin;
 
     if (linacId == 1) {
-        pinFin = PIN_LINAC1_FIN;
-        pinRin = PIN_LINAC1_RIN;
+        pinFin = PIN_LINAC_LARGE_FIN;
+        pinRin = PIN_LINAC_LARGE_RIN;
     } else if (linacId == 2) {
-        pinFin = PIN_LINAC2_FIN;
-        pinRin = PIN_LINAC2_RIN;
+        pinFin = PIN_LINAC_SMALL_FIN;
+        pinRin = PIN_LINAC_SMALL_RIN;
     } else {
         return;
     }
