@@ -370,7 +370,7 @@ void loop()
             }
         }
 
-        // INT16 x4 - set state of valves: 1 -> open, -1 -> close
+        // INT16 x4 - set state of valves: 1 -> open, 0 -> close
         if (commandID == CMD_CITADEL_VALVES)
         {
             for (int i = 0; i < 3 && i < (int)canData.size(); i++)
@@ -379,7 +379,7 @@ void loop()
                 {
                     writeServo(valveServos[i], 180);
                 }
-                else if (canData[i] == -1)
+                else if (canData[i] == 0)
                 {
                     writeServo(valveServos[i], 0);
                 }
