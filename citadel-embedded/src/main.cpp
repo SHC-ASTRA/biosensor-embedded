@@ -84,7 +84,6 @@ double chemicalMove = 0.0;
 int servoAngle;
 int pwmPulse;
 // Variables for CAN commands- since all servos in a group should be writing the same
-int valveID;
 int chemicalID;
 int distributorID;
 int testButton = 0;
@@ -360,13 +359,8 @@ void loop()
             }
         }
 
-        if (commandID == 40)
+        if (commandID == CMD_CITADEL_FAN_CTRL)
         {
-            if (canData.size() == 1)
-            {
-                valveID = canData[0];
-            }
-
             if (canData.size() == 4)
             {
                 for (int i = 0; i < 3; i++)
@@ -374,18 +368,20 @@ void loop()
                     distributorReq[i] = canData[i];
                 }
             }
-            // Valve movement - valveID must be between 0-2
-            // Open all valves
-            if (valveID >= 0 && valveID <= 2)
+        }
+
+        // INT16 x4 - set state of valves: 1 -> open, -1 -> close
+        if (commandID == CMD_CITADEL_VALVES)
+        {
+            for (int i = 0; i < 3 && i < (int)canData.size(); i++)
             {
-                writeServo(valveID, 180);
-            }
-            // If the valve IDs are not valid or -1 is passed in, loop through and close all valves
-            else
-            {
-                for (int valveID = 0; valveID <= 2; valveID++)
+                if (canData[i] == 1)
                 {
-                    writeServo(valveID, 0);
+                    writeServo(valveServos[i], 180);
+                }
+                else if (canData[i] == -1)
+                {
+                    writeServo(valveServos[i], 0);
                 }
             }
         }
