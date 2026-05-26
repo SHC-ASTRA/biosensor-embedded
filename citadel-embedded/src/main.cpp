@@ -33,8 +33,8 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
 
-#define CAN_TX 12
-#define CAN_RX 13
+#define CAN_TX 13
+#define CAN_RX 12
 
 // Manually define the I2C SDA and SLC pins for communication with the PWM linear actuator driver
 #define I2C_SDA 37
