@@ -51,6 +51,7 @@ Timer voltRead;
 Timer shtRead;
 Timer motorAccel;
 Timer motorFeedback;
+Timer versionFeedback;
 
 bool ledState = false;
 
@@ -140,6 +141,7 @@ void setup() {
     shtRead.interval = 2000;
     motorAccel.interval = 50;
     motorFeedback.interval = 500;
+    versionFeedback.interval = 5000;
 
     // Heartbeat task for SparkMAX (must send every 25ms)
     xTaskCreatePinnedToCore(heartbeatTask, "heartbeat", 1000, NULL, 0, NULL, 0);
@@ -215,6 +217,11 @@ void loop() {
             vicCAN.send(CMD_REV_POS_VEL_FEEDBACK, drillMotor.getID(), drillMotor.status2.sensorPosition,
                         drillMotor.status1.sensorVelocity);
         }
+    }
+
+    if (millis() - versionFeedback.lastMillis >= versionFeedback.interval) {
+        versionFeedback.lastMillis = millis();
+        SEND_VERSION_INFO
     }
 
 
