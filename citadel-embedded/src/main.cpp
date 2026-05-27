@@ -23,6 +23,7 @@
 #include "AstraREVCAN.h"
 #include "AstraVicCAN.h"
 
+
 //------------//
 //  Settings  //
 //------------//
@@ -64,6 +65,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 #define COMMS_UART Serial  // To/from USB for debugging
 #define PWM_FREQUENCY 50
 
+
 //---------------------//
 //  Component classes  //
 //---------------------//
@@ -98,9 +100,13 @@ uint16_t valveServos[3] = {VALVE_0, VALVE_1, VALVE_2};
 int distributorPos[3] = {0, 0, 0};
 int distributorReq[3] = {0, 0, 0};
 
+
 //----------//
 //  Timing  //
 //----------//
+
+uint32_t lastBlink = 0;
+bool ledState = false;
 
 long lastWiggle = 0;  // For Distributor servos- count last time moved
 
@@ -109,22 +115,11 @@ unsigned long lastCtrlCmd = 0;
 // Control the PWM fan functioning as the fan motor
 Servo fanMotor;
 int fanMotorSpeed;
-//------------------------------------------------------------------------------------------------//
-//  Function definitions
-//------------------------------------------------------------------------------------------------//
-//
-//
-//----------------------------------------------------//
-//                                                    //
-//    //////////    //          //      //////////    //
-//    //            //\\        //    //              //
-//    //            //  \\      //    //              //
-//    //////        //    \\    //    //              //
-//    //            //      \\  //    //              //
-//    //            //        \\//    //              //
-//    //            //          //      //////////    //
-//                                                    //
-//----------------------------------------------------//
+
+
+//--------------//
+//  Prototypes  //
+//--------------//
 
 // Since there is no function in this library for natively writing servos (0-180), take raw angle and write to
 // pwm value for that pin
@@ -133,6 +128,7 @@ void writeServo(uint16_t pin, int angle) {
     pwmPulse = map(servoAngle, 0, 180, SERVOMOVEMIN, SERVOMOVEMAX);
     pwm.writeMicroseconds(pin, pwmPulse);
 }
+
 
 //------------------------------------------------------------------------------------------------//
 //  Setup
@@ -150,7 +146,6 @@ void writeServo(uint16_t pin, int angle) {
 //    ////////          //        //              //
 //                                                //
 //------------------------------------------------//
-
 void setup() {
     //--------//
     //  Pins  //
@@ -195,6 +190,8 @@ void setup() {
 
     fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
 }
+
+
 //------------------------------------------------------------------------------------------------//
 //  Loop
 //------------------------------------------------------------------------------------------------//
@@ -215,6 +212,14 @@ void loop() {
     //----------//
     //  Timers  //
     //----------//
+#ifdef BLINK
+    if (millis() - lastBlink > 1000) {
+        lastBlink = millis();
+        ledState = !ledState;
+        digitalWrite(LED_BUILTIN, ledState);
+    }
+#endif
+
     // Motor control safety timeout- if no command is received in 1 second, shut off the NEO
     if (millis() - lastCtrlCmd > 1000) {
         lastCtrlCmd = millis();
@@ -253,46 +258,21 @@ void loop() {
         }
     }
 
-    //------------------//
-    //  UART/USB Input  //
-    //------------------//
-    if (Serial.available()) {
-        String input = Serial.readStringUntil('\n');
-        Serial.println(input);
+    // Wiggle every 500ms
+    if ((millis() - lastWiggle > 500) && (millis() - lastWiggle < 2000)) {
+        // Max movement for these servos is 100 degrees due to hardware mounting limit
+        lastWiggle = millis();
 
-        input.trim();                   // Remove preceding and trailing whitespace
-        std::vector<String> args = {};  // Initialize empty vector to hold separated arguments
-        parseInput(input, args);        // Separate `input` by commas and place into args vector
-        args[0].toLowerCase();          // Make command case-insensitive
-        String command = args[0];       // To make processing code more readable
+        distributorPos[0] = distributorReq[0] && !distributorPos[0];
+        writeServo(distributorServos[0], distributorPos[0] ? 100 : 0);
 
-        if (command == "ping") {
-            Serial.println("pong");
-        }
+        distributorPos[1] = distributorReq[1] && !distributorPos[1];
+        writeServo(distributorServos[1], distributorPos[1] ? 100 : 0);
 
-        else if (command == "time") {
-            Serial.println(millis());
-        }
-
-        else if (command == "led")  // This command will not work when using boards that do not have a inbuilt
-                                    // LED (i.e. the ESP32 Dev Module 1)
-        {
-            digitalWrite(LED_BUILTIN, !ledState);
-            ledState = !ledState;
-        }
-
-        else if (args[0] == "can_relay_tovic") {
-            vicCAN.relayFromSerial(args);
-        }
-
-        else if (args[0] == "can_relay_mode") {
-            if (args[1] == "on") {
-                vicCAN.relayOn();
-            } else if (args[1] == "off") {
-                vicCAN.relayOff();
-            }
-        }
+        distributorPos[2] = distributorReq[2] && !distributorPos[2];
+        writeServo(distributorServos[2], distributorPos[2] ? 100 : 0);
     }
+
 
     //-------------//
     //  CAN Input  //
@@ -375,18 +355,46 @@ void loop() {
             }
         }
     }
-    // Wiggle every 500ms
-    if ((millis() - lastWiggle > 500) && (millis() - lastWiggle < 2000)) {
-        // Max movement for these servos is 100 degrees due to hardware mounting limit
-        lastWiggle = millis();
 
-        distributorPos[0] = distributorReq[0] && !distributorPos[0];
-        writeServo(distributorServos[0], distributorPos[0] ? 100 : 0);
 
-        distributorPos[1] = distributorReq[1] && !distributorPos[1];
-        writeServo(distributorServos[1], distributorPos[1] ? 100 : 0);
+    //------------------//
+    //  UART/USB Input  //
+    //------------------//
+    if (Serial.available()) {
+        String input = Serial.readStringUntil('\n');
+        Serial.println(input);
 
-        distributorPos[2] = distributorReq[2] && !distributorPos[2];
-        writeServo(distributorServos[2], distributorPos[2] ? 100 : 0);
+        input.trim();                   // Remove preceding and trailing whitespace
+        std::vector<String> args = {};  // Initialize empty vector to hold separated arguments
+        parseInput(input, args);        // Separate `input` by commas and place into args vector
+        args[0].toLowerCase();          // Make command case-insensitive
+        String command = args[0];       // To make processing code more readable
+
+        if (command == "ping") {
+            Serial.println("pong");
+        }
+
+        else if (command == "time") {
+            Serial.println(millis());
+        }
+
+        else if (command == "led")  // This command will not work when using boards that do not have a inbuilt
+                                    // LED (i.e. the ESP32 Dev Module 1)
+        {
+            digitalWrite(LED_BUILTIN, !ledState);
+            ledState = !ledState;
+        }
+
+        else if (args[0] == "can_relay_tovic") {
+            vicCAN.relayFromSerial(args);
+        }
+
+        else if (args[0] == "can_relay_mode") {
+            if (args[1] == "on") {
+                vicCAN.relayOn();
+            } else if (args[1] == "off") {
+                vicCAN.relayOff();
+            }
+        }
     }
 }
