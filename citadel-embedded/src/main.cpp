@@ -10,9 +10,9 @@
 //  Includes  //
 //------------//
 
+#include <Adafruit_PWMServoDriver.h>
 #include <Arduino.h>
 #include <ESP32Servo.h>
-#include <Adafruit_PWMServoDriver.h>
 #include <Wire.h>
 
 #include <cmath>
@@ -42,8 +42,8 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 
 #define TESTBUTTON 14
 
-#define FAN_PWM_MIN 1000 // us  -1.0 duty
-#define FAN_PWM_MAX 2000 // us  1.0 duty
+#define FAN_PWM_MIN 1000  // us  -1.0 duty
+#define FAN_PWM_MAX 2000  // us  1.0 duty
 
 // Fan PWM pin (connected directly to ESP, unlike the others connected through the multiplexer)
 #define FAN_PWM 9
@@ -61,24 +61,21 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 #define SERVOMOVEMIN 1000
 #define SERVOMOVEMAX 2000
 
-#define COMMS_UART Serial // To/from USB for debugging
+#define COMMS_UART Serial  // To/from USB for debugging
 #define PWM_FREQUENCY 50
 
 //---------------------//
 //  Component classes  //
 //---------------------//
 
-// Linear actuator structure to easily allow for extension/retraction of the chemical linear actuators (increase = extend, decrease = retract)
-struct linearActuators
-{
+// Linear actuator structure to easily allow for extension/retraction of the chemical linear actuators
+// (increase = extend, decrease = retract)
+struct linearActuators {
     int chem_increase;
     int chem_decrease;
 };
 // Linear actuator pins
-linearActuators chemicalActuators[3] = {
-    {10, 11},
-    {9, 8},
-    {7, 6}};
+linearActuators chemicalActuators[3] = {{10, 11}, {9, 8}, {7, 6}};
 
 double chemicalMove = 0.0;
 int servoAngle;
@@ -105,7 +102,7 @@ int distributorReq[3] = {0, 0, 0};
 //  Timing  //
 //----------//
 
-long lastWiggle = 0; // For Distributor servos- count last time moved
+long lastWiggle = 0;  // For Distributor servos- count last time moved
 
 unsigned long lastCtrlCmd = 0;
 
@@ -129,9 +126,9 @@ int fanMotorSpeed;
 //                                                    //
 //----------------------------------------------------//
 
-// Since there is no function in this library for natively writing servos (0-180), take raw angle and write to pwm value for that pin
-void writeServo(uint16_t pin, int angle)
-{
+// Since there is no function in this library for natively writing servos (0-180), take raw angle and write to
+// pwm value for that pin
+void writeServo(uint16_t pin, int angle) {
     servoAngle = constrain(angle, 0, 180);
     pwmPulse = map(servoAngle, 0, 180, SERVOMOVEMIN, SERVOMOVEMAX);
     pwm.writeMicroseconds(pin, pwmPulse);
@@ -154,13 +151,12 @@ void writeServo(uint16_t pin, int angle)
 //                                                //
 //------------------------------------------------//
 
-void setup()
-{
+void setup() {
     //--------//
     //  Pins  //
     //--------//
 
-    Wire.begin(I2C_SDA, I2C_SCL); // Use the defined SDA and SCL pins
+    Wire.begin(I2C_SDA, I2C_SCL);  // Use the defined SDA and SCL pins
     fanMotor.attach(FAN_PWM, FAN_PWM_MIN, FAN_PWM_MAX);
     pinMode(14, INPUT_PULLUP);
 
@@ -171,8 +167,8 @@ void setup()
     Serial.begin(SERIAL_BAUD);
     Wire.setClock(400000);
     pwm.begin();
-    pwm.setOscillatorFrequency(27000000); // Internal oscillator frequency
-    pwm.setPWMFreq(PWM_FREQUENCY);        // External PWM frequency
+    pwm.setOscillatorFrequency(27000000);  // Internal oscillator frequency
+    pwm.setPWMFreq(PWM_FREQUENCY);         // External PWM frequency
 
     if (ESP32Can.begin(TWAI_SPEED_1000KBPS, CAN_TX, CAN_RX))
         Serial.println("CAN bus started!");
@@ -184,8 +180,7 @@ void setup()
     //--------------------//
 
     // Loop through all of the servos and close them
-    for (int i = 0; i <= 2; i++)
-    {
+    for (int i = 0; i <= 2; i++) {
         writeServo(distributorServos[i], 0);
         writeServo(valveServos[i], 0);
     }
@@ -216,14 +211,12 @@ void setup()
 //    /////////      //////////    //              //
 //                                                 //
 //-------------------------------------------------//
-void loop()
-{
+void loop() {
     //----------//
     //  Timers  //
     //----------//
     // Motor control safety timeout- if no command is received in 1 second, shut off the NEO
-    if (millis() - lastCtrlCmd > 1000)
-    {
+    if (millis() - lastCtrlCmd > 1000) {
         lastCtrlCmd = millis();
         fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
         Serial.println("CITADEL Fan Motor - Safety Timeout.");
@@ -231,34 +224,29 @@ void loop()
 
     // Check if the pullup test resistor is triggered - LOW means that the button has been triggered
     testButton = digitalRead(TESTBUTTON);
-    if (testButton == LOW)
-    {
+    if (testButton == LOW) {
         // Move Distributor servos every 300 ms
-        for (int i = 0; i <= 2; i++)
-        {
+        for (int i = 0; i <= 2; i++) {
             writeServo(distributorServos[i], 100);
             delay(300);
             writeServo(distributorServos[i], 0);
         }
         delay(500);
         // Move valve servos every 300 ms
-        for (int i = 0; i <= 2; i++)
-        {
+        for (int i = 0; i <= 2; i++) {
             writeServo(valveServos[i], 180);
             delay(300);
             writeServo(valveServos[i], 0);
         }
         delay(500);
         // Move chemical linear actuators every half second at half speed to max position - loop through
-        for (int chemicalID = 0; chemicalID <= 2; chemicalID++)
-        {
+        for (int chemicalID = 0; chemicalID <= 2; chemicalID++) {
             pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 2047);
             delay(500);
             pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
         }
         // Move chemical linear actuators every half second at half speed to 0 position
-        for (int chemicalID = 0; chemicalID <= 2; chemicalID++)
-        {
+        for (int chemicalID = 0; chemicalID <= 2; chemicalID++) {
             pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 2047);
             delay(500);
             pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
@@ -268,47 +256,39 @@ void loop()
     //------------------//
     //  UART/USB Input  //
     //------------------//
-    if (Serial.available())
-    {
+    if (Serial.available()) {
         String input = Serial.readStringUntil('\n');
         Serial.println(input);
 
-        input.trim();                  // Remove preceding and trailing whitespace
-        std::vector<String> args = {}; // Initialize empty vector to hold separated arguments
-        parseInput(input, args);       // Separate `input` by commas and place into args vector
-        args[0].toLowerCase();         // Make command case-insensitive
-        String command = args[0];      // To make processing code more readable
+        input.trim();                   // Remove preceding and trailing whitespace
+        std::vector<String> args = {};  // Initialize empty vector to hold separated arguments
+        parseInput(input, args);        // Separate `input` by commas and place into args vector
+        args[0].toLowerCase();          // Make command case-insensitive
+        String command = args[0];       // To make processing code more readable
 
-        if (command == "ping")
-        {
+        if (command == "ping") {
             Serial.println("pong");
         }
 
-        else if (command == "time")
-        {
+        else if (command == "time") {
             Serial.println(millis());
         }
 
-        else if (command == "led") // This command will not work when using boards that do not have a inbuilt
-                                   // LED (i.e. the ESP32 Dev Module 1)
+        else if (command == "led")  // This command will not work when using boards that do not have a inbuilt
+                                    // LED (i.e. the ESP32 Dev Module 1)
         {
             digitalWrite(LED_BUILTIN, !ledState);
             ledState = !ledState;
         }
 
-        else if (args[0] == "can_relay_tovic")
-        {
+        else if (args[0] == "can_relay_tovic") {
             vicCAN.relayFromSerial(args);
         }
 
-        else if (args[0] == "can_relay_mode")
-        {
-            if (args[1] == "on")
-            {
+        else if (args[0] == "can_relay_mode") {
+            if (args[1] == "on") {
                 vicCAN.relayOn();
-            }
-            else if (args[1] == "off")
-            {
+            } else if (args[1] == "off") {
                 vicCAN.relayOff();
             }
         }
@@ -317,8 +297,7 @@ void loop()
     //-------------//
     //  CAN Input  //
     //-------------//
-    if (vicCAN.readCan())
-    {
+    if (vicCAN.readCan()) {
         const uint8_t commandID = vicCAN.getCmdId();
         static std::vector<double> canData;
         vicCAN.parseData(canData);
@@ -326,10 +305,8 @@ void loop()
         Serial.print("VicCAN: ");
         Serial.print(commandID);
         Serial.print("; ");
-        if (canData.size() > 0)
-        {
-            for (const double &data : canData)
-            {
+        if (canData.size() > 0) {
+            for (const double &data : canData) {
                 Serial.print(data);
                 Serial.print(", ");
             }
@@ -338,9 +315,8 @@ void loop()
 
         // Misc CAN commands - ASTRA Embedded Lib
 
-        if (commandID == CMD_PING)
-        {
-            vicCAN.respond(1); // "pong"
+        if (commandID == CMD_PING) {
+            vicCAN.respond(1);  // "pong"
             Serial.println("Received ping over CAN");
         }
 
@@ -348,67 +324,51 @@ void loop()
         //  Motors / Linear Actuators   //
         //------------------------------//
 
-        // PWM fan speed function, map fan speed between -100 to 100 - 0 being stopped, negative values being reverse, positive values being forward
-        if (commandID == 19)
-        {
-            if (canData.size() == 1)
-            {
+        // PWM fan speed function, map fan speed between -100 to 100 - 0 being stopped, negative values being
+        // reverse, positive values being forward
+        if (commandID == 19) {
+            if (canData.size() == 1) {
                 fanMotorSpeed = canData[0];
                 fanMotorSpeed = map(fanMotorSpeed, -100, 100, SERVOMOVEMIN, SERVOMOVEMAX);
                 fanMotor.writeMicroseconds(fanMotorSpeed);
             }
         }
 
-        if (commandID == CMD_CITADEL_FAN_CTRL)
-        {
-            if (canData.size() == 4)
-            {
-                for (int i = 0; i < 3; i++)
-                {
+        if (commandID == CMD_CITADEL_FAN_CTRL) {
+            if (canData.size() == 4) {
+                for (int i = 0; i < 3; i++) {
                     distributorReq[i] = canData[i];
                 }
             }
         }
 
         // INT16 x4 - set state of valves: 1 -> open, 0 -> close
-        if (commandID == CMD_CITADEL_VALVES && canData.size() >= 3)
-        {
-            for (int i = 0; i < 3; i++)
-            {
-                if (canData[i] == 1)
-                {
+        if (commandID == CMD_CITADEL_VALVES && canData.size() >= 3) {
+            for (int i = 0; i < 3; i++) {
+                if (canData[i] == 1) {
                     writeServo(valveServos[i], 180);
-                }
-                else
-                {
+                } else {
                     writeServo(valveServos[i], 0);
                 }
             }
         }
 
-        if (commandID == 24)
-        {
+        if (commandID == 24) {
             chemicalID = (int)canData[0];
             chemicalMove = canData[1];
 
-            if ((chemicalID >= 0) && (chemicalID <= 2))
-            { // Ensure that chemical value is between
+            if ((chemicalID >= 0) && (chemicalID <= 2)) {  // Ensure that chemical value is between
 
                 chemActuatorsSpeed = (uint16_t)(fabs(chemicalMove) * 4095);
                 chemActuatorsSpeed = constrain(chemActuatorsSpeed, 0, 4095);
 
-                if (chemicalMove > 0)
-                { // Extend
+                if (chemicalMove > 0) {  // Extend
                     pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, chemActuatorsSpeed);
                     pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
-                }
-                else if (chemicalMove == 0)
-                { // Do not move linear actuator
+                } else if (chemicalMove == 0) {  // Do not move linear actuator
                     pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
                     pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
-                }
-                else
-                { // Retract linear actuator
+                } else {  // Retract linear actuator
                     pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, chemActuatorsSpeed);
                     pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
                 }
@@ -416,8 +376,7 @@ void loop()
         }
     }
     // Wiggle every 500ms
-    if ((millis() - lastWiggle > 500) && (millis() - lastWiggle < 2000))
-    {
+    if ((millis() - lastWiggle > 500) && (millis() - lastWiggle < 2000)) {
         // Max movement for these servos is 100 degrees due to hardware mounting limit
         lastWiggle = millis();
 
