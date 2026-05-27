@@ -222,11 +222,13 @@ void loop() {
 #endif
 
     // Motor control safety timeout- if no command is received in 1 second, shut off the NEO
+#if 0
     if (millis() - lastCtrlCmd > 1000) {
         lastCtrlCmd = millis();
         fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
         Serial.println("CITADEL Fan Motor - Safety Timeout.");
     }
+#endif
 
     // Check if the pullup test resistor is triggered - LOW means that the button has been triggered
     testButton = digitalRead(TESTBUTTON);
