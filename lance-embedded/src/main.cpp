@@ -285,7 +285,7 @@ void loop() {
         else if (commandID == CMD_REV_SET_DUTY) {
             // canData[0] = duty (-1.0 to 1.0) for drill SparkMax
             if (canData.size() == 1) {
-                drillMotor.setDuty(static_cast<float>(canData[0]));
+                drillMotor.sendDuty(static_cast<float>(canData[0]));
             }
         }
 
@@ -369,7 +369,7 @@ void loop() {
         // Drill SparkMax: "drill,<duty>"  duty: -1.0 to 1.0
         else if (command == "drill") {
             if (args.size() >= 2) {
-                drillMotor.setDuty(args[1].toFloat());
+                drillMotor.sendDuty(args[1].toFloat());
             }
         }
 
