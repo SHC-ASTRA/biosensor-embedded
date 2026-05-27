@@ -86,7 +86,6 @@ int pwmPulse;
 int chemicalID;
 int distributorID;
 int testButton = 0;
-bool ledState = false;
 
 // Value of movement to ignore
 double chemicalDeadzone = 0.05;
@@ -115,6 +114,8 @@ unsigned long lastCtrlCmd = 0;
 // Control the PWM fan functioning as the fan motor
 Servo fanMotor;
 int fanMotorSpeed;
+
+unsigned long lastVersionSend = 0;
 
 
 //--------------//
@@ -271,6 +272,11 @@ void loop() {
 
         distributorPos[2] = distributorReq[2] && !distributorPos[2];
         writeServo(distributorServos[2], distributorPos[2] ? 100 : 0);
+    }
+
+    if (millis() - lastVersionSend > 5000) {
+        lastVersionSend = millis();
+        SEND_VERSION_INFO
     }
 
 
