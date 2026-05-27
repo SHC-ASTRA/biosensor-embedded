@@ -371,15 +371,15 @@ void loop()
         }
 
         // INT16 x4 - set state of valves: 1 -> open, 0 -> close
-        if (commandID == CMD_CITADEL_VALVES)
+        if (commandID == CMD_CITADEL_VALVES && canData.size() >= 3)
         {
-            for (int i = 0; i < 3 && i < (int)canData.size(); i++)
+            for (int i = 0; i < 3; i++)
             {
                 if (canData[i] == 1)
                 {
                     writeServo(valveServos[i], 180);
                 }
-                else if (canData[i] == 0)
+                else
                 {
                     writeServo(valveServos[i], 0);
                 }
