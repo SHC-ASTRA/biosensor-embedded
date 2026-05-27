@@ -117,6 +117,9 @@ int fanMotorSpeed;
 
 unsigned long lastVersionSend = 0;
 
+Timer fanCtrl;
+int fanTarget = 0;
+
 
 //--------------//
 //  Prototypes  //
@@ -174,6 +177,8 @@ void setup() {
     //--------------------//
     //  Misc. Components  //
     //--------------------//
+
+    fanCtrl.interval = 100;
 
     // Loop through all of the servos and close them
     for (int i = 0; i <= 2; i++) {
@@ -281,6 +286,19 @@ void loop() {
         SEND_VERSION_INFO
     }
 
+    // Fan ramping
+    if (millis() - fanCtrl.lastMillis > fanCtrl.interval) {
+        fanCtrl.lastMillis = millis();
+        if (abs(fanTarget - fanCtrl.state) <= 5) {
+            fanCtrl.state = fanTarget;
+        } else if (fanTarget > fanCtrl.state) {
+            fanCtrl.state += 5;
+        } else if (fanTarget < fanCtrl.state) {
+            fanCtrl.state -= 5;
+        }
+        fanMotor.write(fanCtrl.state);
+    }
+
 
     //-------------//
     //  CAN Input  //
@@ -315,10 +333,8 @@ void loop() {
         // PWM fan speed function, map fan speed between -100 to 100 - 0 being stopped, negative values being
         // reverse, positive values being forward
         if (commandID == 19) {
-            if (canData.size() == 1) {
-                fanMotorSpeed = canData[0];
-                fanMotorSpeed = map(fanMotorSpeed, -100, 100, SERVOMOVEMIN, SERVOMOVEMAX);
-                fanMotor.writeMicroseconds(fanMotorSpeed);
+            if (canData.size() == 1 && canData[0] >= 0 && canData[0] <= 100) {
+                fanTarget = map(canData[0], -100, 100, 0, 180);
             }
         }
 
