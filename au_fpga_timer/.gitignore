@@ -1,0 +1,26 @@
+# Alchitry Labs / Vivado build output.
+
+# Alchitry build directory
+work/
+
+# Vivado IP stuff regenerated from the .xci files
+cores/ip_user_files/
+cores/managed_ip_project/
+cores/project.tcl
+
+# Per-core generated products
+cores/*/*
+!cores/*/*.xci
+!cores/*/*_stub.v
+
+# Vivado scratch
+.Xil/
+*.dcp
+*.bit
+*.bin
+*.log
+*.jou
+*.str
+*.rpt
+*.rpx
+*.wdb
