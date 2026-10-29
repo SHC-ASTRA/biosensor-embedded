@@ -23,6 +23,7 @@
 #include "AstraREVCAN.h"
 #include "AstraVicCAN.h"
 
+
 //------------//
 //  Settings  //
 //------------//
@@ -33,8 +34,8 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 // Remove to disable the boards inbuilt LED blinking
 #define BLINK
 
-#define CAN_TX 12
-#define CAN_RX 13
+#define CAN_TX 13
+#define CAN_RX 12
 
 // Manually define the I2C SDA and SLC pins for communication with the PWM linear actuator driver
 #define I2C_SDA 37
@@ -64,6 +65,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
 #define COMMS_UART Serial  // To/from USB for debugging
 #define PWM_FREQUENCY 50
 
+
 //---------------------//
 //  Component classes  //
 //---------------------//
@@ -81,11 +83,9 @@ double chemicalMove = 0.0;
 int servoAngle;
 int pwmPulse;
 // Variables for CAN commands- since all servos in a group should be writing the same
-int valveID;
 int chemicalID;
 int distributorID;
 int testButton = 0;
-bool ledState = false;
 
 // Value of movement to ignore
 double chemicalDeadzone = 0.05;
@@ -99,9 +99,13 @@ uint16_t valveServos[3] = {VALVE_0, VALVE_1, VALVE_2};
 int distributorPos[3] = {0, 0, 0};
 int distributorReq[3] = {0, 0, 0};
 
+
 //----------//
 //  Timing  //
 //----------//
+
+uint32_t lastBlink = 0;
+bool ledState = false;
 
 long lastWiggle = 0;  // For Distributor servos- count last time moved
 
@@ -110,22 +114,16 @@ unsigned long lastCtrlCmd = 0;
 // Control the PWM fan functioning as the fan motor
 Servo fanMotor;
 int fanMotorSpeed;
-//------------------------------------------------------------------------------------------------//
-//  Function definitions
-//------------------------------------------------------------------------------------------------//
-//
-//
-//----------------------------------------------------//
-//                                                    //
-//    //////////    //          //      //////////    //
-//    //            //\\        //    //              //
-//    //            //  \\      //    //              //
-//    //////        //    \\    //    //              //
-//    //            //      \\  //    //              //
-//    //            //        \\//    //              //
-//    //            //          //      //////////    //
-//                                                    //
-//----------------------------------------------------//
+
+unsigned long lastVersionSend = 0;
+
+Timer fanCtrl;
+int fanTarget = 0;
+
+
+//--------------//
+//  Prototypes  //
+//--------------//
 
 // Since there is no function in this library for natively writing servos (0-180), take raw angle and write to
 // pwm value for that pin
@@ -134,6 +132,7 @@ void writeServo(uint16_t pin, int angle) {
     pwmPulse = map(servoAngle, 0, 180, SERVOMOVEMIN, SERVOMOVEMAX);
     pwm.writeMicroseconds(pin, pwmPulse);
 }
+
 
 //------------------------------------------------------------------------------------------------//
 //  Setup
@@ -151,7 +150,6 @@ void writeServo(uint16_t pin, int angle) {
 //    ////////          //        //              //
 //                                                //
 //------------------------------------------------//
-
 void setup() {
     //--------//
     //  Pins  //
@@ -180,6 +178,8 @@ void setup() {
     //  Misc. Components  //
     //--------------------//
 
+    fanCtrl.interval = 100;
+
     // Loop through all of the servos and close them
     for (int i = 0; i <= 2; i++) {
         writeServo(distributorServos[i], 0);
@@ -196,6 +196,8 @@ void setup() {
 
     fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
 }
+
+
 //------------------------------------------------------------------------------------------------//
 //  Loop
 //------------------------------------------------------------------------------------------------//
@@ -216,8 +218,16 @@ void loop() {
     //----------//
     //  Timers  //
     //----------//
+#ifdef BLINK
+    if (millis() - lastBlink > 1000) {
+        lastBlink = millis();
+        ledState = !ledState;
+        digitalWrite(LED_BUILTIN, ledState);
+    }
+#endif
+
     // Motor control safety timeout- if no command is received in 1 second, shut off the NEO
-    if (millis() - lastCtrlCmd > 1000) {
+    if (millis() - lastCtrlCmd > 15000) {
         lastCtrlCmd = millis();
         fanMotor.writeMicroseconds((FAN_PWM_MIN + FAN_PWM_MAX) / 2);
         Serial.println("CITADEL Fan Motor - Safety Timeout.");
@@ -253,6 +263,121 @@ void loop() {
             pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
         }
     }
+
+    // Wiggle every 500ms
+    if ((millis() - lastWiggle > 500) && (millis() - lastWiggle < 2000)) {
+        // Max movement for these servos is 100 degrees due to hardware mounting limit
+        lastWiggle = millis();
+
+        distributorPos[0] = distributorReq[0] && !distributorPos[0];
+        writeServo(distributorServos[0], distributorPos[0] ? 100 : 0);
+
+        distributorPos[1] = distributorReq[1] && !distributorPos[1];
+        writeServo(distributorServos[1], distributorPos[1] ? 100 : 0);
+
+        distributorPos[2] = distributorReq[2] && !distributorPos[2];
+        writeServo(distributorServos[2], distributorPos[2] ? 100 : 0);
+    }
+
+    if (millis() - lastVersionSend > 5000) {
+        lastVersionSend = millis();
+        SEND_VERSION_INFO
+    }
+
+    // Fan ramping
+    if (millis() - fanCtrl.lastMillis > fanCtrl.interval) {
+        fanCtrl.lastMillis = millis();
+        if (abs(fanTarget - fanCtrl.state) <= 5) {
+            fanCtrl.state = fanTarget;
+        } else if (fanTarget > fanCtrl.state) {
+            fanCtrl.state += 5;
+        } else if (fanTarget < fanCtrl.state) {
+            fanCtrl.state -= 5;
+        }
+        fanMotor.write(fanCtrl.state);
+    }
+
+
+    //-------------//
+    //  CAN Input  //
+    //-------------//
+    if (vicCAN.readCan()) {
+        const uint8_t commandID = vicCAN.getCmdId();
+        static std::vector<double> canData;
+        vicCAN.parseData(canData);
+
+        Serial.print("VicCAN: ");
+        Serial.print(commandID);
+        Serial.print("; ");
+        if (canData.size() > 0) {
+            for (const double &data : canData) {
+                Serial.print(data);
+                Serial.print(", ");
+            }
+        }
+        Serial.println();
+
+        // Misc CAN commands - ASTRA Embedded Lib
+
+        if (commandID == CMD_PING) {
+            vicCAN.respond(1);  // "pong"
+            Serial.println("Received ping over CAN");
+        }
+
+        //------------------------------//
+        //  Motors / Linear Actuators   //
+        //------------------------------//
+
+        // PWM fan speed function, map fan speed between -100 to 100 - 0 being stopped, negative values being
+        // reverse, positive values being forward
+        if (commandID == 19) {
+            if (canData.size() == 1 && canData[0] >= 0 && canData[0] <= 100) {
+                fanTarget = map(canData[0], -100, 100, 0, 180);
+            }
+        }
+
+        if (commandID == CMD_CITADEL_FAN_CTRL) {
+            if (canData.size() == 4) {
+                for (int i = 0; i < 3; i++) {
+                    distributorReq[i] = canData[i];
+                }
+            }
+        }
+
+        // INT16 x4 - set state of valves: 1 -> open, 0 -> close
+        if (commandID == CMD_CITADEL_VALVES && canData.size() >= 3) {
+            for (int i = 0; i < 3; i++) {
+                if (canData[i] == 1) {
+                    writeServo(valveServos[i], 180);
+                } else {
+                    writeServo(valveServos[i], 0);
+                }
+            }
+        }
+
+        if (commandID == 24) {
+            chemicalID = (int)canData[0];
+            chemicalMove = canData[1];
+
+            if ((chemicalID >= 0) && (chemicalID <= 2)) {  // Ensure that chemical value is between
+
+                chemActuatorsSpeed = (uint16_t)(fabs(chemicalMove) * 4095);
+                chemActuatorsSpeed = constrain(chemActuatorsSpeed, 0, 4095);
+
+                if (chemicalMove > 0) {  // Extend
+                    pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, chemActuatorsSpeed);
+                    pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
+                } else if (chemicalMove == 0) {  // Do not move linear actuator
+                    pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
+                    pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
+                } else {  // Retract linear actuator
+                    pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, chemActuatorsSpeed);
+                    pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
+                }
+            }
+        }
+    }
+
 
     //------------------//
     //  UART/USB Input  //
@@ -293,105 +418,5 @@ void loop() {
                 vicCAN.relayOff();
             }
         }
-    }
-
-    //-------------//
-    //  CAN Input  //
-    //-------------//
-    if (vicCAN.readCan()) {
-        const uint8_t commandID = vicCAN.getCmdId();
-        static std::vector<double> canData;
-        vicCAN.parseData(canData);
-
-        Serial.print("VicCAN: ");
-        Serial.print(commandID);
-        Serial.print("; ");
-        if (canData.size() > 0) {
-            for (const double& data : canData) {
-                Serial.print(data);
-                Serial.print(", ");
-            }
-        }
-        Serial.println();
-
-        // Misc CAN commands - ASTRA Embedded Lib
-
-        if (commandID == CMD_PING) {
-            vicCAN.respond(1);  // "pong"
-            Serial.println("Received ping over CAN");
-        }
-
-        //------------------------------//
-        //  Motors / Linear Actuators   //
-        //------------------------------//
-
-        // PWM fan speed function, map fan speed between -100 to 100 - 0 being stopped, negative values being
-        // reverse, positive values being forward
-        if (commandID == 19) {
-            if (canData.size() == 1) {
-                fanMotorSpeed = canData[0];
-                fanMotorSpeed = map(fanMotorSpeed, -100, 100, SERVOMOVEMIN, SERVOMOVEMAX);
-                fanMotor.writeMicroseconds(fanMotorSpeed);
-            }
-        }
-
-        if (commandID == 40) {
-            if (canData.size() == 1) {
-                valveID = canData[0];
-            }
-
-            if (canData.size() == 4) {
-                for (int i = 0; i < 3; i++) {
-                    distributorReq[i] = canData[i];
-                }
-            }
-            // Valve movement - valveID must be between 0-2
-            // Open all valves
-            if (valveID >= 0 && valveID <= 2) {
-                writeServo(valveID, 180);
-            }
-            // If the valve IDs are not valid or -1 is passed in, loop through and close all valves
-            else {
-                for (int valveID = 0; valveID <= 2; valveID++) {
-                    writeServo(valveID, 0);
-                }
-            }
-        }
-
-        if (commandID == 24) {
-            chemicalID = (int)canData[0];
-            chemicalMove = canData[1];
-
-            if ((chemicalID >= 0) && (chemicalID <= 2)) {  // Ensure that chemical value is between
-
-                chemActuatorsSpeed = (uint16_t)(fabs(chemicalMove) * 4095);
-                chemActuatorsSpeed = constrain(chemActuatorsSpeed, 0, 4095);
-
-                if (chemicalMove > 0) {  // Extend
-                    pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, chemActuatorsSpeed);
-                    pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
-                } else if (chemicalMove == 0) {  // Do not move linear actuator
-                    pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
-                    pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, 0);
-                } else {  // Retract linear actuator
-                    pwm.setPWM(chemicalActuators[chemicalID].chem_decrease, 0, chemActuatorsSpeed);
-                    pwm.setPWM(chemicalActuators[chemicalID].chem_increase, 0, 0);
-                }
-            }
-        }
-    }
-    // Wiggle every 500ms
-    if ((millis() - lastWiggle > 500) && (millis() - lastWiggle < 2000)) {
-        // Max movement for these servos is 100 degrees due to hardware mounting limit
-        lastWiggle = millis();
-
-        distributorPos[0] = distributorReq[0] && !distributorPos[0];
-        writeServo(distributorServos[0], distributorPos[0] ? 100 : 0);
-
-        distributorPos[1] = distributorReq[1] && !distributorPos[1];
-        writeServo(distributorServos[1], distributorPos[1] ? 100 : 0);
-
-        distributorPos[2] = distributorReq[2] && !distributorPos[2];
-        writeServo(distributorServos[2], distributorPos[2] ? 100 : 0);
     }
 }
